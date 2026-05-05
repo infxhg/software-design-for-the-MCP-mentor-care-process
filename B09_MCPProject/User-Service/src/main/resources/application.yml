@@ -1,0 +1,12 @@
+mybatis-plus:
+  mapper-locations: classpath:/mapper/**/*.xml  # XML 映射文件路径（初期可留空，MP 内置 CRUD 无需 XML）
+  type-aliases-package: com.bnbu.user.entity    # 实体类包路径
+  global-config:
+    db-config:
+      id-type: assign_id                        # 雪花算法生成 ID
+      logic-delete-field: is_deleted            # 逻辑删除字段
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+  configuration:
+    map-underscore-to-camel-case: true          # 下划线转驼峰
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl # 开发期打印 SQL，上线前删除
