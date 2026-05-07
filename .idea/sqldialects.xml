@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="SqlDialectMappings">
+    <file url="file://$PROJECT_DIR$/B09_MCPProject/User-Service/src/main/resources/orgANDUnit.sql" dialect="MySQL" />
     <file url="file://$PROJECT_DIR$/B09_MCPProject/User-Service/src/main/resources/roleANDpermission.sql" dialect="MySQL" />
+    <file url="file://$PROJECT_DIR$/B09_MCPProject/User-Service/src/main/resources/setMajor.sql" dialect="MySQL" />
+    <file url="file://$PROJECT_DIR$/B09_MCPProject/User-Service/src/main/resources/setStudentrole.sql" dialect="MySQL" />
   </component>
 </project>

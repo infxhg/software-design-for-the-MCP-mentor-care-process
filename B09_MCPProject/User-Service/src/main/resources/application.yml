@@ -10,6 +10,18 @@ spring:
       port: 6379
       password: 13377671259
       timeout: 5000
+  mail:
+    host: smtp.163.com
+    port: 465
+    username: shuoran2026career@163.com
+    password: LViXBKZciZJMaKCs
+    properties:
+      mail:
+        smtp:
+          auth: true
+          ssl:
+            enable: true
+            trust: smtp.163.com
 
 mybatis-plus:
   mapper-locations: classpath:/mapper/**/*.xml  # XML 映射文件路径（初期可留空，MP 内置 CRUD 无需 XML）
