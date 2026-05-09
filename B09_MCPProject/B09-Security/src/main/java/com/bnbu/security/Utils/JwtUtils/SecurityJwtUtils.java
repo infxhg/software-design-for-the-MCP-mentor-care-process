@@ -1,6 +1,9 @@
-package com.bnbu.user.Utils.JwtUtils;
+package com.bnbu.security.Utils.JwtUtils;
 
-import io.jsonwebtoken.*;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.JwtException;
+import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.stereotype.Component;
 
@@ -8,7 +11,7 @@ import java.util.Date;
 import java.util.List;
 
 @Component
-public class JwtUtils {
+public class SecurityJwtUtils {
 
     private static final String signature = "====ThisIsAGroupProjectByB09====";
     public String generateToken(String userId, List<String> roles){
@@ -39,12 +42,12 @@ public class JwtUtils {
     }
 
     public static String getUserIdFromToken(String token) {
-        Claims claims = Jwts.parser()
-                .verifyWith(Keys.hmacShaKeyFor(signature.getBytes()))
-                .build()
-                .parseSignedClaims(token)
-                .getPayload();
-        return claims.get("userId",String.class);
+       Claims claims = Jwts.parser()
+               .verifyWith(Keys.hmacShaKeyFor(signature.getBytes()))
+               .build()
+               .parseSignedClaims(token)
+               .getPayload();
+       return claims.get("userId",String.class);
     }
 
     public Claims parseToken(String token) {

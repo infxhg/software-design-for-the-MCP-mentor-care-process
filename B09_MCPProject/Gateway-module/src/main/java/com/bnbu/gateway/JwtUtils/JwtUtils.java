@@ -1,6 +1,9 @@
-package com.bnbu.user.Utils.JwtUtils;
+package com.bnbu.gateway.JwtUtils;
 
-import io.jsonwebtoken.*;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.JwtException;
+import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.stereotype.Component;
 
@@ -11,7 +14,7 @@ import java.util.List;
 public class JwtUtils {
 
     private static final String signature = "====ThisIsAGroupProjectByB09====";
-    public String generateToken(String userId, List<String> roles){
+    public String generateToken(String userId,  List<String> roles){
         return Jwts.builder()
                 .header()
                 .add("type","JWT")

@@ -1,0 +1,104 @@
+
+
+services:
+  # ==================== Nacos ====================
+  nacos:
+    image: nacos/nacos-server:v2.3.2-slim
+    container_name: nacos
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+      - "9849:9849"
+    environment:
+      - MODE=standalone
+      - NACOS_AUTH_ENABLE=false
+      - NACOS_AUTH_TOKEN=VGhpc0lzQU1vY2tTZWNyZXRLZXlUaGF0SXNWZXJ5TG9uZ0FuZFNlY3VyZQ==
+      - NACOS_AUTH_IDENTITY_KEY=nacos
+      - NACOS_AUTH_IDENTITY_VALUE=nacos
+      - JVM_XMS=512m
+      - JVM_XMX=512m
+      - JVM_XMN=256m
+    volumes:
+      - nacos_data:/home/nacos/data
+    networks:
+      - b09-net
+    restart: unless-stopped
+
+  # ==================== Redis ====================
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    command: redis-server --requirepass 13377671259
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - b09-net
+    restart: unless-stopped
+
+  # ==================== 用户服务 ====================
+  user-service:
+    build:
+      context: ./User-Service
+      dockerfile: Dockerfile
+    container_name: user-service
+    environment:
+      - TZ=Asia/Shanghai
+      - spring.profiles.active=prod
+      - server.port=8081
+      - spring.cloud.nacos.discovery.server-addr=nacos:8848
+      - spring.application.name=user-service
+      - MAIL_USERNAME=${MAIL_USERNAME}           # ← 必须有
+      - MAIL_PASSWORD=${MAIL_PASSWORD}
+      # Redis 使用容器名
+      - spring.data.redis.host=redis
+      - spring.data.redis.port=6379
+      - spring.data.redis.password=13377671259
+    depends_on:
+      nacos:
+        condition: service_started
+      redis:
+        condition: service_started
+    networks:
+      - b09-net
+    restart: unless-stopped
+
+  # ==================== 网关（已开启 Nacos Discovery） ====================
+  gateway:
+    build:
+      context: ./Gateway-module
+      dockerfile: Dockerfile
+    container_name: gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - TZ=Asia/Shanghai
+      - spring.profiles.active=prod
+      - server.port=8080
+      - spring.cloud.nacos.discovery.server-addr=nacos:8848
+      - spring.application.name=gateway
+      - GATEWAY_USER_SERVICE_URI=${GATEWAY_USER_SERVICE_URI:http://localhost:8081}
+      - NACOS_CONSOLE_PORT=8848          # 新增
+      - NACOS_CONSOLE_CONTEXT_PATH=/nacos
+        # 【补齐 Redis 配置，防止网关连不上 Redis】
+      - spring.data.redis.host=redis
+      - spring.data.redis.port=6379
+      - spring.data.redis.password=13377671259
+      # Gateway 现在使用 lb:// 动态路由
+    depends_on:
+      nacos:
+        condition: service_started
+      user-service:
+        condition: service_started
+    networks:
+      - b09-net
+    restart: unless-stopped
+
+volumes:
+  nacos_data:
+  redis_data:
+
+networks:
+  b09-net:
+    driver: bridge

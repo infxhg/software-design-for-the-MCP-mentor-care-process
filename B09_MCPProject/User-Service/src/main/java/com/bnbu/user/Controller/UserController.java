@@ -6,7 +6,9 @@ import com.bnbu.user.DTO.Result;
 import com.bnbu.user.Entity.User;
 import com.bnbu.user.Service.UserService;
 import com.bnbu.user.Service.UserServiceIterface;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.*;
 
@@ -46,8 +48,11 @@ public class UserController {
         }
     }
 
+    @PreAuthorize("hasRole('ADMIN') or hasAuthority('user:update')")
     @PostMapping("/updateInfo")
-    public Result updateInfo(@RequestBody User user ){
+    public Result updateInfo(HttpServletRequest request, @RequestBody User user ){
+        String currentUserId = request.getHeader("X-User-Id");
+        user.setId(currentUserId);
         userService.updateInfo(user);
         return Result.success();
     }

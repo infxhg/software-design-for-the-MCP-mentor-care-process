@@ -15,11 +15,14 @@ import com.bnbu.user.Utils.JavaMailUtils.MailServiceImple;
 import com.bnbu.user.Utils.JwtUtils.JwtUtils;
 import jakarta.annotation.Resource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.DigestUtils;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -39,7 +42,7 @@ public class UserService extends ServiceImpl<UserMapper, User> implements UserSe
     // 黑名单 Key 前缀 (例如: mcp:blacklist:user:1001)
     private static final String REDIS_KEY_BLACKLIST = "mcp:blacklist:user:";
 
-    @Resource
+    @Autowired
     private StringRedisTemplate stringRedisTemplate;
 
     @Autowired
@@ -53,11 +56,12 @@ public class UserService extends ServiceImpl<UserMapper, User> implements UserSe
 
     @Resource
     JwtUtils jwtUtils;
+    @Qualifier("redisTemplate")
+
 
 
     @Override
     public String login(String username, String password) {
-
         if(username == null || username.isEmpty()|| password == null || password.isEmpty()){
             throw new RuntimeException("please enter your username and password");
         }
@@ -81,10 +85,33 @@ public class UserService extends ServiceImpl<UserMapper, User> implements UserSe
             throw new RuntimeException("该账号已被封禁，请联系管理员");
         }
 
-        // 5. 全部校验通过！调用你的 JwtUtil 生成 Token
+        // 5. 全部校验通过 调用 JwtUtil 生成 Token
         // 把用户的唯一 ID 塞进 Token 的载荷中
 
-        return jwtUtils.generateToken(user.getId(),username, this.getBaseMapper().getRoleCodesByUserId(user.getId()));
+        String userId = user.getId();
+        List<String> roles = baseMapper.getRoleCodesByUserId(userId);
+        String token = jwtUtils.generateToken(userId,roles);
+
+        List<String> perms = baseMapper.getPermissionsByUserId(userId);
+
+        List<String> securityAuthorities = new ArrayList<>();
+        if (roles != null && !roles.isEmpty()) {
+            for (String role : roles) {
+                // 存入 Redis 的格式变成 "ROLE_ADMIN"
+                securityAuthorities.add("ROLE_" + role.toUpperCase());
+            }
+        }
+
+        if(perms!=null && !perms.isEmpty()){
+            securityAuthorities.addAll(perms);
+
+        }
+        if (!securityAuthorities.isEmpty()) {
+            String redisKey = "auth:perms:" + userId;
+            stringRedisTemplate.opsForSet().add(redisKey, securityAuthorities.toArray(new String[0]));
+            stringRedisTemplate.expire(redisKey, 2, TimeUnit.HOURS);
+        }
+        return token;
     }
 
     @Override

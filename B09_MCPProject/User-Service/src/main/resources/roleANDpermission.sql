@@ -74,3 +74,8 @@ INSERT INTO `sys_role_permission` (`role_id`, `permission_id`) VALUES
 INSERT INTO `sys_role_permission` (`role_id`, `permission_id`) VALUES
                                                                    ('ROLE_000000000000000000000000005', 'PERM_000000000000000000000000020'), -- appointment:create
                                                                    ('ROLE_000000000000000000000000005', 'PERM_000000000000000000000000021'); -- message:communicate
+
+
+
+
+

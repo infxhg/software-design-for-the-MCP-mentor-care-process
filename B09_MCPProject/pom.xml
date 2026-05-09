@@ -6,18 +6,19 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.3.5</version>
+        <version>3.2.10</version>
         <relativePath/>
     </parent>
 
     <groupId>com.bnbu</groupId>
-    <artifactId>B09_MCPPProject</artifactId>
+    <artifactId>B09_MCPProject</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <modules>
         <module>gateway-module</module>
         <module>user-service</module>
+        <module>B09-Security</module>
     </modules>
 
     <properties>
@@ -46,4 +47,5 @@
             </dependency>
         </dependencies>
     </dependencyManagement>
+
 </project>

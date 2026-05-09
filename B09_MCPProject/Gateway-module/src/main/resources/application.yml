@@ -1,0 +1,42 @@
+server:
+  port: 8080 # 网关是对外暴露的统一端口，前端以后就只请求这个端口
+
+spring:
+  application:
+    name: gateway-module
+  main:
+      # 强制指定为响应式 Web 环境
+    web-application-type: servlet
+  cloud:
+    nacos:
+      discovery:
+        enabled: true
+    gateway:
+      mvc:
+        routes:
+        - id: user-service-route
+          uri: ${GATEWAY_USER_SERVICE_URI:http://localhost:8081} # 目标服务地址
+          predicates:
+      # 告诉网关：只要看到 /api/user 打头的请求，就归这个路由管
+          - Path=/api/user/**
+
+      # 2. 【新增】全局跨域 (CORS) 配置
+      globalcors:
+        # 解决 OPTIONS 请求被拦截的问题
+        add-to-simple-url-handler-mapping: true
+        cors-configurations:
+          '[/**]': # 拦截所有请求路径
+            allowedOriginPatterns: "*" # 允许所有前端域名访问 (比 allowedOrigins 更现代、更安全)
+            allowedMethods: # 允许的 HTTP 方法
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+            allowedHeaders: "*" # 允许所有请求头 (特别是我们的 Authorization 头)
+            allowCredentials: true # 允许前端携带 Cookie 等凭证
+            maxAge: 3600 # 预检请求的缓存时间(秒)，避免每次发请求前都发 OPTIONS 探测
+
+# 这里配置你之前提到的共享 JWT 密钥 (至少32个字符)
+jwt:
+  secret: "====ThisIsAGroupProjectByB09===="
