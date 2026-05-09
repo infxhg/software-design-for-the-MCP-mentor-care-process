@@ -8,6 +8,8 @@
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
         <module name="Gateway-module" />
+        <module name="Organizational-Service" />
+        <module name="Mentoring-Service" />
         <module name="B09-Security" />
         <module name="User-Service" />
       </profile>
@@ -18,6 +20,8 @@
       <module name="B09-Security" options="-parameters" />
       <module name="B09_MCPProject" options="" />
       <module name="Gateway-module" options="-parameters" />
+      <module name="Mentoring-Service" options="-parameters" />
+      <module name="Organizational-Service" options="-parameters" />
       <module name="User-Service" options="-parameters" />
     </option>
   </component>

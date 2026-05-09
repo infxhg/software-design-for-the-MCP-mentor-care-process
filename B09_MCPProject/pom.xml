@@ -19,6 +19,9 @@
         <module>gateway-module</module>
         <module>user-service</module>
         <module>B09-Security</module>
+        <module>Organizational-Service</module>
+        <module>Mentoring</module>
+        <module>Mentoring-Service</module>
     </modules>
 
     <properties>
