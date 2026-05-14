@@ -17,11 +17,11 @@
   </component>
   <component name="JavacSettings">
     <option name="ADDITIONAL_OPTIONS_OVERRIDE">
-      <module name="B09-Security" options="-parameters" />
+      <module name="B09-Security" options="" />
       <module name="B09_MCPProject" options="" />
       <module name="Gateway-module" options="-parameters" />
-      <module name="Mentoring-Service" options="-parameters" />
-      <module name="Organizational-Service" options="-parameters" />
+      <module name="Mentoring-Service" options="" />
+      <module name="Organizational-Service" options="" />
       <module name="User-Service" options="-parameters" />
     </option>
   </component>
