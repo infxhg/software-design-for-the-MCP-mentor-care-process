@@ -8,7 +8,7 @@ import java.time.LocalDateTime;
 @Data
 @TableName("sys_user")
 public class User {
-    @TableId(type = IdType.ASSIGN_UUID)
+    @TableId(type = IdType.INPUT)
     private String id;
     private String username;
     private String passwordHash;

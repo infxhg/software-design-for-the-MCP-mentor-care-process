@@ -6,7 +6,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 import org.springframework.cloud.openfeign.EnableFeignClients;
 
-@SpringBootApplication
+@SpringBootApplication(scanBasePackages = {"com.bnbu.mentoring", "com.bnbu.security"})
 @EnableDiscoveryClient
 @EnableFeignClients
 @MapperScan("com.bnbu.mentoring.Mapper")

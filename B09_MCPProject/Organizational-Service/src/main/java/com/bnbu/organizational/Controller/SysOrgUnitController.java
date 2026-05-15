@@ -59,7 +59,7 @@ public class SysOrgUnitController {
     /**
      * 功能：全局搜索学生信息 (供 Faculty Consultant / 系统管理员 使用)
      */
-    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('ROLE_FACULTY_CONSULTANT') or hasAuthority('ROLE_ADMIN')")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('ROLE_FACULTY_CONSULTANT') or hasAuthority('ROLE_ADMIN') or hasAuthority('ROLE_COORDINATOR')")
     @GetMapping("/students/search")
     public Result searchAllStudents(@RequestParam(required = false) String keyword) {
         List<com.bnbu.organizational.DTO.UserRemoteDTO> students = sysOrgUnitService.searchAllStudents(keyword);
@@ -101,5 +101,20 @@ public class SysOrgUnitController {
     public Result getUnitDetail(@PathVariable String unitId) {
         SysOrgUnit sysOrgUnit = sysOrgUnitService.getById(unitId);
         return Result.success("获取成功",sysOrgUnit);
+    }
+
+    /**
+     * 功能：按学生 ID 精确查询单个学生信息
+     * 描述：供 Mentor 和 Coordinator 使用，通过学生 ID 精确查找对应学生的基本信息
+     * GET /api/org/student/{studentId}
+     */
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('ROLE_MENTOR') or hasAuthority('ROLE_COORDINATOR')")
+    @GetMapping("/student/{studentId}")
+    public Result getStudentById(@PathVariable String studentId) {
+        com.alibaba.nacos.api.model.v2.Result result = sysOrgUnitService.getStudentById(studentId);
+        if (result == null || result.getCode() != 200) {
+            return Result.error("用户不存在或查询失败");
+        }
+        return Result.success("查询成功", result.getData());
     }
 }

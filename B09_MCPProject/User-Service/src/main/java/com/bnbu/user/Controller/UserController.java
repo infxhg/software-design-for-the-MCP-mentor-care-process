@@ -89,4 +89,20 @@ public class UserController {
         return Result.success("查询成功", users);
     }
 
+    /**
+     * 供组织服务 Feign 调用：根据用户 ID 精确查询单个用户
+     * GET /api/user/internal/student/{studentId}
+     */
+    @GetMapping("/internal/student/{studentId}")
+    @PreAuthorize("permitAll()")
+    public Result getStudentById(@PathVariable("studentId") String studentId) {
+        User user = userService.getUserById(studentId);
+        if (user == null) {
+            return Result.error("用户不存在");
+        }
+        user.setPasswordHash(null); // 脱敏，不返回密码
+        return Result.success("查询成功", user);
+    }
+
 }
+

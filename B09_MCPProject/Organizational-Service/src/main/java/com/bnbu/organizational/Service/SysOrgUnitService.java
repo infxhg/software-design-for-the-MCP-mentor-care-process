@@ -27,4 +27,9 @@ public interface SysOrgUnitService extends IService<SysOrgUnit> {
      * 全局根据关键字查询 Student
      */
     List<com.bnbu.organizational.DTO.UserRemoteDTO> searchAllStudents(String keyword);
+
+    /**
+     * 根据学生 ID 精确查询单个学生（透传 User-Service 结果）
+     */
+    com.alibaba.nacos.api.model.v2.Result getStudentById(String studentId);
 }

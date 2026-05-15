@@ -29,6 +29,12 @@ spring:
     url: jdbc:mysql://rm-7xvkq7eswp47232at3o.mysql.rds.aliyuncs.com:3306/organization-service-database?serverTimezone=UTC
     username: root
     password: 1603845288aA
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: 13377671259
+      timeout: 5000
 
 mybatis-plus:
   # Mapper XML 文件所在的路径
