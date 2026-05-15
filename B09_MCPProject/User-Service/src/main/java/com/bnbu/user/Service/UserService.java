@@ -182,6 +182,9 @@ public class UserService extends ServiceImpl<UserMapper, User> implements UserSe
         user.setPasswordHash(md5Password);
         user.setStatus(1);
         user.setIsDeleted(0);
+        // 生成唯一的 9 位纯数字 ID（100000000 ~ 999999999）
+        String newId = generateUniqueUserId();
+        user.setId(newId);
         this.save(user);
         Role studentRole = roleMapper.selectOne(new QueryWrapper<com.bnbu.user.Entity.Role>()
                 .eq("role_code", "STUDENT"));
@@ -274,7 +277,7 @@ public class UserService extends ServiceImpl<UserMapper, User> implements UserSe
         // 3. 关键字模糊查询 (name LIKE '%keyword%' OR email LIKE '%keyword%')
         if (searchDTO.getKeyword() != null && !searchDTO.getKeyword().isEmpty()) {
             String keyword = searchDTO.getKeyword();
-            queryWrapper.and(wrapper -> wrapper.like("real_name", keyword).or().like("email", keyword));
+            queryWrapper.and(wrapper -> wrapper.like("real_name", keyword).or().like("email", keyword).or().like("id", keyword));
         }
 
         // 4. 执行查询
@@ -290,5 +293,24 @@ public class UserService extends ServiceImpl<UserMapper, User> implements UserSe
             dto.setPhone(user.getPhone());
             return dto;
         }).collect(Collectors.toList());
+    }
+
+    /**
+     * 生成唯一的 9 位纯数字用户 ID（100000000 ~ 999999999）
+     * 采用重试机制防止极低概率的 ID 碰撞
+     */
+    private String generateUniqueUserId() {
+        java.util.Random random = new java.util.Random();
+        int maxRetries = 10;
+        for (int i = 0; i < maxRetries; i++) {
+            // 生成 100000000 ~ 999999999 之间的随机数
+            int candidate = 100000000 + random.nextInt(900000000);
+            String candidateId = String.valueOf(candidate);
+            // 检查数据库中是否已存在该 ID
+            if (this.getById(candidateId) == null) {
+                return candidateId;
+            }
+        }
+        throw new RuntimeException("系统繁忙，用户 ID 生成失败，请重试");
     }
 }

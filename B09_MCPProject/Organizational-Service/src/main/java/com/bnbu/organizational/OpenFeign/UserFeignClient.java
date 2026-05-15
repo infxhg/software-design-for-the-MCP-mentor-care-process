@@ -4,6 +4,8 @@ package com.bnbu.organizational.OpenFeign;
 import com.alibaba.nacos.api.model.v2.Result;
 import com.bnbu.organizational.DTO.UserSearchDTO;
 import org.springframework.cloud.openfeign.FeignClient;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 
@@ -16,4 +18,10 @@ public interface UserFeignClient {
      */
     @PostMapping("/api/user/search/by-conditions")
     Result searchUsersByConditions(@RequestBody UserSearchDTO searchDTO);
+
+    /**
+     * 根据学生 ID 精确查询单个学生信息
+     */
+    @GetMapping("/api/user/internal/student/{studentId}")
+    Result getStudentById(@PathVariable("studentId") String studentId);
 }

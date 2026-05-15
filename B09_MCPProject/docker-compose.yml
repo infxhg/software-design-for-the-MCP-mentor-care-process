@@ -107,6 +107,9 @@ services:
       - spring.cloud.nacos.discovery.server-addr=nacos:8848
       - spring.application.name=organizational-service
       - spring.datasource.url=jdbc:mysql://rm-7xvkq7eswp47232at3o.mysql.rds.aliyuncs.com:3306/organization-service-database?serverTimezone=UTC
+      - spring.data.redis.host=redis
+      - spring.data.redis.port=6379
+      - spring.data.redis.password=13377671259
     depends_on:
       nacos:
         condition: service_started
@@ -129,6 +132,9 @@ services:
       - spring.cloud.nacos.discovery.server-addr=nacos:8848
       - spring.application.name=mentoring-service
       - spring.datasource.url=jdbc:mysql://rm-7xvkq7eswp47232at3o.mysql.rds.aliyuncs.com:3306/mentoring-service?serverTimezone=UTC&characterEncoding=utf8
+      - spring.data.redis.host=redis
+      - spring.data.redis.port=6379
+      - spring.data.redis.password=13377671259
     depends_on:
       nacos:
         condition: service_started

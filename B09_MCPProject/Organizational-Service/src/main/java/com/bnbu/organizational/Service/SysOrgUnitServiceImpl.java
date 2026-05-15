@@ -182,4 +182,9 @@ public class SysOrgUnitServiceImpl extends ServiceImpl<SysOrgUnitMapper, SysOrgU
 
         return fetchMentorsFromUserService(searchDTO);
     }
+
+    @Override
+    public com.alibaba.nacos.api.model.v2.Result getStudentById(String studentId) {
+        return userFeignClient.getStudentById(studentId);
+    }
 }

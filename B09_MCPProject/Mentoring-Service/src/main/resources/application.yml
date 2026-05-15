@@ -25,6 +25,12 @@ spring:
     url: jdbc:mysql://rm-7xvkq7eswp47232at3o.mysql.rds.aliyuncs.com:3306/mentoring-service?serverTimezone=UTC&characterEncoding=utf8
     username: root
     password: 1603845288aA
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: 13377671259
+      timeout: 5000
 
 mybatis-plus:
   mapper-locations: classpath*:/mapper/**/*.xml

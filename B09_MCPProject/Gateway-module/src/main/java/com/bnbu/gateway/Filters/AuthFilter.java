@@ -92,7 +92,9 @@ public class AuthFilter extends OncePerRequestFilter {
             filterChain.doFilter(wrappedRequest, response);
 
         } catch (Exception e) {
-            // 解析失败（过期或伪造）
+            System.out.println("【Gateway Token 校验失败】");
+            System.out.println("Token: " + realToken);
+            e.printStackTrace();                    // 打印具体异常类型和堆栈
             response.sendError(HttpStatus.UNAUTHORIZED.value(), "Invalid Token");
         }
     }
