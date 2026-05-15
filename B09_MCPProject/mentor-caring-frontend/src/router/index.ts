@@ -26,58 +26,89 @@ const router = createRouter({
       component: MainView,
     },
 
-    // 修改部分：Search Student Info 不再使用 /students/search，避免被 /students/:studentId 吃掉
+    // 只有 Mentor 和 MCP Coordinator 可以搜索学生信息
     {
       path: '/search-student',
       component: SearchStudentView,
+      meta: {
+        allowedRoles: ['mentor', 'coordinator'],
+      },
     },
 
-    // 修改部分：学生详情页改成明确路径 /student-detail/:studentId
+    // Student Detail 属于 Search Student Info 流程
     {
       path: '/student-detail/:studentId',
       component: StudentDetailView,
+      meta: {
+        allowedRoles: ['mentor', 'coordinator'],
+      },
     },
 
-    // 修改部分：编辑记录页改成明确路径 /edit-record/:studentId
+    // 只有 Mentor 可以编辑 interview record
     {
       path: '/edit-record/:studentId',
       component: EditRecordView,
+      meta: {
+        allowedRoles: ['mentor'],
+      },
     },
 
-    // 修改部分：Search Mentor Info 不再使用 /mentors/search
+    // 只有 Faculty Consultant 和 MCP Coordinator 可以搜索导师信息
     {
       path: '/search-mentor',
       component: SearchMentorView,
+      meta: {
+        allowedRoles: ['consultant', 'coordinator'],
+      },
     },
 
-    // 修改部分：导师结果页改成 /mentor-result
+    // Mentor search result 也只允许 Consultant 和 Coordinator 进入
     {
       path: '/mentor-result',
       component: MentorResultView,
+      meta: {
+        allowedRoles: ['consultant', 'coordinator'],
+      },
     },
 
-    // 修改部分：小组成员页改成 /group-members/:groupId
+    // Group members 也只允许 Consultant 和 Coordinator 进入
     {
       path: '/group-members/:groupId',
       component: GroupMembersView,
+      meta: {
+        allowedRoles: ['consultant', 'coordinator'],
+      },
     },
 
-    // 修改部分：学生记录页改成 /student-record/:studentId
+    // 从 group members 点学生记录，也只允许 Consultant 和 Coordinator 进入
     {
       path: '/student-record/:studentId',
       component: StudentRecordView,
+      meta: {
+        allowedRoles: ['consultant', 'coordinator'],
+      },
     },
   ],
 })
 
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('token')
+  const role = localStorage.getItem('role')
 
   if (to.path !== '/login' && !token) {
     next('/login')
-  } else {
-    next()
+    return
   }
+
+  const allowedRoles = to.meta.allowedRoles as string[] | undefined
+
+  if (allowedRoles && role && !allowedRoles.includes(role)) {
+    alert('Authorization warning: You do not have permission to access this page.')
+    next('/main')
+    return
+  }
+
+  next()
 })
 
 export default router

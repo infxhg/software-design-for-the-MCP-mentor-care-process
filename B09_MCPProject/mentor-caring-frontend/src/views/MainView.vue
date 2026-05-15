@@ -3,34 +3,27 @@
     <h1>Dashboard</h1>
     <p class="desc">Welcome to Mentor Caring System.</p>
 
-    <div class="cards">
-      <div class="card">
-        <h3>Search Student Info</h3>
-        <p>Mentors and MCP Coordinators can search student information.</p>
-
-        <!-- 修改部分：这里必须是 /search-student -->
-        <router-link to="/search-student">Go to Search</router-link>
+    <div v-if="visibleCards.length > 0" class="cards">
+      <div v-for="card in visibleCards" :key="card.title" class="card">
+        <h3>{{ card.title }}</h3>
+        <p>{{ card.description }}</p>
+        <router-link :to="card.path">{{ card.linkText }}</router-link>
       </div>
+    </div>
 
-      <div class="card">
-        <h3>Edit Interview Record</h3>
-        <p>Mentors can edit student interview records after searching a student.</p>
-
-        <!-- 修改部分：编辑前也先去学生搜索页 -->
-        <router-link to="/search-student">Search Student First</router-link>
-      </div>
-
-      <div class="card">
-        <h3>Search Mentor Info</h3>
-        <p>Faculty Consultants and MCP Coordinators can search mentor information.</p>
-
-        <!-- 修改部分：这里必须是 /search-mentor -->
-        <router-link to="/search-mentor">Go to Search</router-link>
-      </div>
+    <div v-else class="no-function">
+      <h2>No available test module</h2>
+      <p>
+        Your current role does not have access to the selected test modules.
+      </p>
+      <p>
+        The current frontend test scope focuses on Mentor, MCP Coordinator, and Faculty Consultant.
+      </p>
     </div>
 
     <div class="test-info">
       <h2>Test Data</h2>
+      <p><strong>Current Role:</strong> {{ roleLabel }}</p>
       <p><strong>Student inside mentor group:</strong> S001</p>
       <p><strong>Student outside mentor group:</strong> S002</p>
       <p><strong>Non-existing student:</strong> S999</p>
@@ -41,7 +34,52 @@
   </div>
 </template>
 
-<script setup lang="ts"></script>
+<script setup lang="ts">
+import { computed } from 'vue'
+
+const role = localStorage.getItem('role') || 'student'
+
+const roleLabel = computed(() => {
+  const roleMap: Record<string, string> = {
+    student: 'Student',
+    mentor: 'Mentor',
+    coordinator: 'MCP Coordinator',
+    consultant: 'Faculty Consultant',
+    admin: 'Administrator',
+    support: 'Supporting Staff',
+  }
+
+  return roleMap[role] || role
+})
+
+const cards = [
+  {
+    title: 'Search Student Info',
+    description: 'Mentors and MCP Coordinators can search student information.',
+    path: '/search-student',
+    linkText: 'Go to Search',
+    roles: ['mentor', 'coordinator'],
+  },
+  {
+    title: 'Edit Interview Record',
+    description: 'Mentors can edit student interview records after searching a student.',
+    path: '/search-student',
+    linkText: 'Search Student First',
+    roles: ['mentor'],
+  },
+  {
+    title: 'Search Mentor Info',
+    description: 'Faculty Consultants and MCP Coordinators can search mentor information.',
+    path: '/search-mentor',
+    linkText: 'Go to Search',
+    roles: ['consultant', 'coordinator'],
+  },
+]
+
+const visibleCards = computed(() => {
+  return cards.filter((card) => card.roles.includes(role))
+})
+</script>
 
 <style scoped>
 .desc {
@@ -76,6 +114,18 @@
   color: #2563eb;
   text-decoration: none;
   font-weight: 600;
+}
+
+.no-function {
+  margin-top: 24px;
+  padding: 24px;
+  background: white;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+}
+
+.no-function p {
+  color: #6b7280;
 }
 
 .test-info {
