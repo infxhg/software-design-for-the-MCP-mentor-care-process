@@ -2,53 +2,58 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import LoginView from '../views/LoginView.vue'
 import MainView from '../views/MainView.vue'
-import MessageListView from '../views/MessageListView.vue'
-import AppointmentView from '../views/AppointmentView.vue'
-import RecordView from '../views/RecordView.vue'
-import ImportView from '../views/ImportView.vue'
-import ExportView from '../views/ExportView.vue'
-import LogView from '../views/LogView.vue'
+import SearchStudentView from '../views/SearchStudentView.vue'
+import StudentDetailView from '../views/StudentDetailView.vue'
+import EditRecordView from '../views/EditRecordView.vue'
+import SearchMentorView from '../views/SearchMentorView.vue'
+import MentorResultView from '../views/MentorResultView.vue'
+import GroupMembersView from '../views/GroupMembersView.vue'
+import StudentRecordView from '../views/StudentRecordView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
       path: '/',
-      redirect: '/login'
+      redirect: '/login',
     },
     {
       path: '/login',
-      component: LoginView
+      component: LoginView,
     },
     {
       path: '/main',
-      component: MainView
+      component: MainView,
     },
     {
-      path: '/messages',
-      component: MessageListView
+      path: '/students/search',
+      component: SearchStudentView,
     },
     {
-      path: '/appointments',
-      component: AppointmentView
+      path: '/students/:studentId',
+      component: StudentDetailView,
     },
     {
-      path: '/records',
-      component: RecordView
+      path: '/students/:studentId/edit-record',
+      component: EditRecordView,
     },
     {
-      path: '/import',
-      component: ImportView
+      path: '/mentors/search',
+      component: SearchMentorView,
     },
     {
-      path: '/export',
-      component: ExportView
+      path: '/mentors/result',
+      component: MentorResultView,
     },
     {
-      path: '/logs',
-      component: LogView
-    }
-  ]
+      path: '/groups/:groupId/members',
+      component: GroupMembersView,
+    },
+    {
+      path: '/students/:studentId/record',
+      component: StudentRecordView,
+    },
+  ],
 })
 
 router.beforeEach((to, from, next) => {

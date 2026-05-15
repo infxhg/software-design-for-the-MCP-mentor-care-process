@@ -2,7 +2,7 @@
   <div class="login-page">
     <div class="login-card">
       <h1>Mentor Caring System</h1>
-      <p>Please login to continue</p>
+      <p class="subtitle">Please login to continue</p>
 
       <form @submit.prevent="login">
         <div class="form-item">
@@ -20,7 +20,7 @@
           <select v-model="role">
             <option value="student">Student</option>
             <option value="mentor">Mentor</option>
-            <option value="coordinator">Coordinator</option>
+            <option value="coordinator">MCP Coordinator</option>
             <option value="consultant">Faculty Consultant</option>
             <option value="admin">Administrator</option>
             <option value="support">Supporting Staff</option>
@@ -31,23 +31,31 @@
 
         <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
       </form>
+
+      <div class="hint">
+        <p>Suggested test roles:</p>
+        <p>Mentor: search S001</p>
+        <p>Coordinator: search S001</p>
+        <p>Consultant: search mentor info</p>
+      </div>
     </div>
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import type { Role } from '../data/mockData'
 
 const router = useRouter()
 
 const account = ref('')
 const password = ref('')
-const role = ref('student')
+const role = ref<Role>('mentor')
 const errorMessage = ref('')
 
 function login() {
-  if (!account.value || !password.value) {
+  if (!account.value.trim() || !password.value.trim()) {
     errorMessage.value = 'Please enter account and password.'
     return
   }
@@ -69,7 +77,7 @@ function login() {
 }
 
 .login-card {
-  width: 380px;
+  width: 400px;
   padding: 32px;
   background: white;
   border-radius: 14px;
@@ -77,10 +85,12 @@ function login() {
 }
 
 h1 {
-  margin-bottom: 8px;
+  margin: 0;
+  font-size: 26px;
 }
 
-p {
+.subtitle {
+  margin-top: 8px;
   color: #6b7280;
 }
 
@@ -99,21 +109,32 @@ select {
   width: 100%;
   padding: 10px;
   box-sizing: border-box;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
 }
 
 button {
   width: 100%;
-  margin-top: 20px;
-  padding: 10px;
-  border: none;
+  margin-top: 22px;
+  padding: 11px;
   background: #2563eb;
   color: white;
-  cursor: pointer;
+  border: none;
   border-radius: 6px;
+  cursor: pointer;
 }
 
 .error {
   margin-top: 12px;
   color: #dc2626;
+}
+
+.hint {
+  margin-top: 20px;
+  padding: 12px;
+  background: #f3f4f6;
+  border-radius: 8px;
+  color: #4b5563;
+  font-size: 13px;
 }
 </style>

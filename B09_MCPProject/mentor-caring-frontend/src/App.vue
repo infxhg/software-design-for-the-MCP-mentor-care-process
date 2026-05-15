@@ -4,20 +4,16 @@
   <div v-else class="layout">
     <aside class="sidebar">
       <h2>MCS</h2>
-      <p class="role">Mentor Caring System</p>
+      <p class="system-name">Mentor Caring System</p>
 
       <router-link to="/main">Home</router-link>
-      <router-link to="/messages">Messages</router-link>
-      <router-link to="/appointments">Appointments</router-link>
-      <router-link to="/records">Interview Records</router-link>
-      <router-link to="/import">Import Data</router-link>
-      <router-link to="/export">Export Records</router-link>
-      <router-link to="/logs">Activity Logs</router-link>
+      <router-link to="/students/search">Search Student Info</router-link>
+      <router-link to="/mentors/search">Search Mentor Info</router-link>
     </aside>
 
     <main class="main">
       <header class="topbar">
-        <span>Mentor Caring System</span>
+        <span>Current Role: {{ role }}</span>
         <button @click="logout">Logout</button>
       </header>
 
@@ -28,14 +24,18 @@
   </div>
 </template>
 
-<script setup>
-import { computed } from 'vue'
+<script setup lang="ts">
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 const route = useRoute()
 const router = useRouter()
 
-const isLoginPage = computed(() => route.path === '/login')
+const role = ref(localStorage.getItem('role') || 'student')
+
+const isLoginPage = computed(() => {
+  return route.path === '/login'
+})
 
 function logout() {
   localStorage.removeItem('token')
@@ -52,26 +52,28 @@ function logout() {
 }
 
 .sidebar {
-  width: 240px;
+  width: 260px;
   padding: 24px;
   background: #1f2937;
   color: white;
 }
 
 .sidebar h2 {
-  margin-bottom: 4px;
+  margin: 0;
+  font-size: 28px;
 }
 
-.role {
-  margin-bottom: 24px;
+.system-name {
+  margin-top: 6px;
+  margin-bottom: 28px;
   color: #cbd5e1;
   font-size: 14px;
 }
 
 .sidebar a {
   display: block;
-  padding: 10px 12px;
-  margin-bottom: 8px;
+  padding: 12px;
+  margin-bottom: 10px;
   color: white;
   text-decoration: none;
   border-radius: 8px;
@@ -97,9 +99,9 @@ function logout() {
 
 .topbar button {
   padding: 8px 16px;
-  border: none;
   background: #ef4444;
   color: white;
+  border: none;
   border-radius: 6px;
   cursor: pointer;
 }
