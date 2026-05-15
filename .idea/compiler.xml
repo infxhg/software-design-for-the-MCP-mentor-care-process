@@ -13,16 +13,30 @@
         <module name="B09-Security" />
         <module name="User-Service" />
       </profile>
+      <profile name="Annotation profile for B09_MCPProject" enabled="true">
+        <sourceOutputDir name="../gateway-module/target/generated-sources/annotations" />
+        <sourceTestOutputDir name="../gateway-module/target/generated-test-sources/test-annotations" />
+        <outputRelativeToContentRoot value="true" />
+        <module name="gateway-module" />
+      </profile>
+      <profile name="Annotation profile for user-service" enabled="true">
+        <sourceOutputDir name="../user-service/target/generated-sources/annotations" />
+        <sourceTestOutputDir name="../user-service/target/generated-test-sources/test-annotations" />
+        <outputRelativeToContentRoot value="true" />
+        <module name="user-service" />
+      </profile>
     </annotationProcessing>
   </component>
   <component name="JavacSettings">
     <option name="ADDITIONAL_OPTIONS_OVERRIDE">
-      <module name="B09-Security" options="" />
+      <module name="B09-Security" options="-parameters" />
       <module name="B09_MCPProject" options="" />
       <module name="Gateway-module" options="-parameters" />
-      <module name="Mentoring-Service" options="" />
-      <module name="Organizational-Service" options="" />
+      <module name="Mentoring-Service" options="-parameters" />
+      <module name="Organizational-Service" options="-parameters" />
       <module name="User-Service" options="-parameters" />
+      <module name="gateway-module" options="-parameters" />
+      <module name="user-service" options="-parameters" />
     </option>
   </component>
 </project>
