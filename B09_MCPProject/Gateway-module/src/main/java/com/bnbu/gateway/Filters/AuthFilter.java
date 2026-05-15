@@ -28,7 +28,7 @@ public class AuthFilter extends OncePerRequestFilter {
     // 白名单路径
     private static final List<String> WHITE_LIST = List.of(
             "/api/user/register",
-            "/api/user/verify",
+            "/api/user/register/verify",
             "/api/user/login"
     );
 
@@ -41,10 +41,11 @@ public class AuthFilter extends OncePerRequestFilter {
 
         // 1. 白名单直接放行
         if (WHITE_LIST.stream().anyMatch(path::startsWith)) {
+            System.out.println("【Gateway AuthFilter】白名单放行成功: " + path);
             filterChain.doFilter(request, response);
             return;
         }
-
+        System.out.println("【Gateway AuthFilter】未命中白名单，需要校验 Token");
         // 2. 提取 Authorization Header
         String authHeader = request.getHeader("Authorization");
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {

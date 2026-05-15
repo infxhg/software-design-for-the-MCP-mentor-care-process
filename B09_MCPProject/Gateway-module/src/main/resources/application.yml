@@ -11,14 +11,29 @@ spring:
     nacos:
       discovery:
         enabled: true
+
     gateway:
       mvc:
         routes:
         - id: user-service-route
           uri: ${GATEWAY_USER_SERVICE_URI:http://localhost:8081} # 目标服务地址
           predicates:
-      # 告诉网关：只要看到 /api/user 打头的请求，就归这个路由管
           - Path=/api/user/**
+
+        - id: user-service-message
+          uri: lb://user-service
+          predicates:
+          - Path=/api/message/*
+
+        - id: organizational-route
+          uri: lb://organizational-service
+          predicates:
+            - Path=/api/org/**
+
+        - id: mentoring-route
+          uri: lb://mentoring-service
+          predicates:
+            - Path=/api/mentoring/**
 
       # 2. 【新增】全局跨域 (CORS) 配置
       globalcors:

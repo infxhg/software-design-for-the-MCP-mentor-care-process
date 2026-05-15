@@ -1,4 +1,5 @@
 package com.bnbu.security.Exception;
+import lombok.extern.slf4j.Slf4j;
 
 import com.bnbu.security.Utils.CommonUtils.SecurityResult;
 import org.springframework.security.access.AccessDeniedException;
@@ -6,7 +7,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
-
+@Slf4j
 public class GlobalSecurityHandler {
 
 
@@ -18,7 +19,9 @@ public class GlobalSecurityHandler {
 
     @ExceptionHandler(Exception.class)
     public SecurityResult handleGlobalException(Exception e){
-        return SecurityResult.error(500,"something went wrong");
+        log.error("【全局异常】", e);           // 重点：打印完整异常
+        e.printStackTrace();                   // 再打印一遍
+        return SecurityResult.error("something went wrong");
     }
 
 

@@ -4,13 +4,14 @@ package com.bnbu.user.Controller;
 import com.bnbu.user.DTO.RegisterVerifyDTO;
 import com.bnbu.user.DTO.Result;
 import com.bnbu.user.Entity.User;
-import com.bnbu.user.Service.UserService;
 import com.bnbu.user.Service.UserServiceIterface;
 import jakarta.servlet.http.HttpServletRequest;
+import org.apache.ibatis.annotations.Param;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController()
 @RequestMapping("/api/user")
@@ -62,5 +63,30 @@ public class UserController {
         return Result.success("get info successfully",userService.getUserInfo(username));
     }
 
+    @GetMapping("/internal/userInfo")
+    @PreAuthorize("permitAll()")
+    public Result getInternalUserInfo(@RequestHeader("X-User-Id") String targetUserId,@Param("userId") String userId){
+        return Result.success("Successfully get one user",userService.getUserById(userId));
+    }
+
+    @GetMapping("/students/all")
+    @PreAuthorize("permitAll()")
+    public Result getAllStudents() {
+        List<User> students = userService.getAllStudents();
+        // 也可以将 students 的 PasswordHash 手动设置为 null 以防数据泄露
+        students.forEach(student -> student.setPasswordHash(null));
+        return Result.success("Successfully fetched all students", students);
+    }
+
+    /**
+     * 供组织服务调用：在指定的 ID 范围内，根据角色和关键字模糊搜索用户
+     */
+
+    @PostMapping("/search/by-conditions")
+    @PreAuthorize("permitAll()")
+    public Result searchUsersByConditions(@RequestBody com.bnbu.user.DTO.UserSearchDTO searchDTO) {
+        List<com.bnbu.user.DTO.UserRemoteDTO> users = userService.searchUsers(searchDTO);
+        return Result.success("查询成功", users);
+    }
 
 }

@@ -1,10 +1,8 @@
 package com.bnbu.user.Service;
 
-
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.bnbu.user.DTO.UserInfoDTO;
-import com.bnbu.user.Entity.OrgUnit;
 import com.bnbu.user.Entity.Role;
 import com.bnbu.user.Entity.User;
 import com.bnbu.user.Entity.UserRole;
@@ -16,7 +14,6 @@ import com.bnbu.user.Utils.JwtUtils.JwtUtils;
 import jakarta.annotation.Resource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,15 +21,11 @@ import org.springframework.util.DigestUtils;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-
-import static javax.management.Query.or;
-
-
+import java.util.stream.Collectors;
 
 @Service
-public class UserService extends ServiceImpl<UserMapper, User> implements UserServiceIterface  {
+public class UserService extends ServiceImpl<UserMapper, User> implements UserServiceIterface {
 
     private static final String mailSuffix1 = "@mail.bnbu.edu.cn";
     private static final String mailSuffic2 = "2026career@163.com";
@@ -56,20 +49,20 @@ public class UserService extends ServiceImpl<UserMapper, User> implements UserSe
 
     @Resource
     JwtUtils jwtUtils;
+    @Autowired
+    private UserMapper userMapper;
+
     @Qualifier("redisTemplate")
-
-
 
     @Override
     public String login(String username, String password) {
-        if(username == null || username.isEmpty()|| password == null || password.isEmpty()){
+        if (username == null || username.isEmpty() || password == null || password.isEmpty()) {
             throw new RuntimeException("please enter your username and password");
         }
         User user = this.getOne(new QueryWrapper<User>()
-                .eq("username",username)
+                .eq("username", username)
                 .or()
-                .eq("email",username)
-        );
+                .eq("email", username));
         if (user == null) {
             throw new RuntimeException("账号或密码错误");
         }
@@ -90,7 +83,7 @@ public class UserService extends ServiceImpl<UserMapper, User> implements UserSe
 
         String userId = user.getId();
         List<String> roles = baseMapper.getRoleCodesByUserId(userId);
-        String token = jwtUtils.generateToken(userId,roles);
+        String token = jwtUtils.generateToken(userId, roles);
 
         List<String> perms = baseMapper.getPermissionsByUserId(userId);
 
@@ -102,7 +95,7 @@ public class UserService extends ServiceImpl<UserMapper, User> implements UserSe
             }
         }
 
-        if(perms!=null && !perms.isEmpty()){
+        if (perms != null && !perms.isEmpty()) {
             securityAuthorities.addAll(perms);
 
         }
@@ -119,24 +112,22 @@ public class UserService extends ServiceImpl<UserMapper, User> implements UserSe
         User user = this.getOne(new QueryWrapper<User>()
                 .eq("username", username)
                 .or()
-                .eq("email", username)
-        );
+                .eq("email", username));
 
         if (user == null) {
             throw new RuntimeException("用户不存在");
         }
 
         String userId = user.getId();
-        if (user == null) throw new RuntimeException("用户不存在");
+        if (user == null)
+            throw new RuntimeException("用户不存在");
         List<String> roles = baseMapper.getRoleCodesByUserId(userId);
         List<String> perms = baseMapper.getPermissionsByUserId(userId);
-        List<OrgUnit> orgUnit = baseMapper.getOrgUnitsByUserId(userId);
 
         UserInfoDTO userInfoDTO = new UserInfoDTO();
         userInfoDTO.setUser(user);
         userInfoDTO.setPermissions(perms);
         userInfoDTO.setRoles(roles);
-        userInfoDTO.setOrgUnits(orgUnit);
 
         return userInfoDTO;
     }
@@ -146,43 +137,43 @@ public class UserService extends ServiceImpl<UserMapper, User> implements UserSe
         if (user.getId() == null || user.getId().isEmpty()) {
             throw new RuntimeException("User ID field uncompleted，cannot update");
         }
-        user.setPasswordHash(null);  // 密码只能走专门的"修改密码"接口
-        user.setStatus(null);        // 状态(封号/解封)只能由管理员操作
-        user.setIsDeleted(null);     // 逻辑删除标志
-        user.setEmail(null);         // 邮箱是唯一标识，通常不允许随便改，或者需要验证原邮箱
+        user.setPasswordHash(null); // 密码只能走专门的"修改密码"接口
+        user.setStatus(null); // 状态(封号/解封)只能由管理员操作
+        user.setIsDeleted(null); // 逻辑删除标志
+        user.setEmail(null); // 邮箱是唯一标识，通常不允许随便改，或者需要验证原邮箱
         user.setUsername(null);
         this.updateById(user);
     }
 
     @Override
     public boolean register(String emailAccount) {
-        if(emailAccount == null ||!(emailAccount.endsWith(mailSuffix1)||emailAccount.endsWith(mailSuffic2))){
+        if (emailAccount == null || !(emailAccount.endsWith(mailSuffix1) || emailAccount.endsWith(mailSuffic2))) {
             throw new RuntimeException("People who are not BNBU staff or students are unauthorized");
         }
-        long emailNums = this.count(new QueryWrapper<User>().eq("email",emailAccount));
-        if(emailNums > 0 ){
+        long emailNums = this.count(new QueryWrapper<User>().eq("email", emailAccount));
+        if (emailNums > 0) {
             throw new RuntimeException("Already registered! Please Login");
         }
-        int code = (int) ((Math.random()*9+1)*100000);
+        int code = (int) ((Math.random() * 9 + 1) * 100000);
         String redisKey = REDIS_KEY_REGISTER_CODE + emailAccount;
-        stringRedisTemplate.opsForValue().set(redisKey, String.valueOf(code),5, TimeUnit.MINUTES);
-        mailServiceImple.sendRegisterMail(emailAccount,code);
+        stringRedisTemplate.opsForValue().set(redisKey, String.valueOf(code), 5, TimeUnit.MINUTES);
+        mailServiceImple.sendRegisterMail(emailAccount, code);
         return true;
     }
 
     @Transactional
     @Override
-    public boolean verify(User user,String code){
-        if (user.getEmail() == null || code == null){
+    public boolean verify(User user, String code) {
+        if (user.getEmail() == null || code == null) {
             throw new RuntimeException("filed uncompleted");
         }
         String redisKey = REDIS_KEY_REGISTER_CODE + user.getEmail();
         String codeInRedis = stringRedisTemplate.opsForValue().get(redisKey);
 
-        if(codeInRedis == null){
+        if (codeInRedis == null) {
             throw new RuntimeException("Verification Expired, Please fetch again");
         }
-        if(!codeInRedis.equals(code)){
+        if (!codeInRedis.equals(code)) {
             throw new RuntimeException("Verification incorrect!");
         }
         stringRedisTemplate.delete(redisKey);
@@ -193,9 +184,8 @@ public class UserService extends ServiceImpl<UserMapper, User> implements UserSe
         user.setIsDeleted(0);
         this.save(user);
         Role studentRole = roleMapper.selectOne(new QueryWrapper<com.bnbu.user.Entity.Role>()
-                .eq("role_code", "STUDENT")
-        );
-        if(studentRole == null){
+                .eq("role_code", "STUDENT"));
+        if (studentRole == null) {
             throw new RuntimeException("System error,no student role");
         }
         UserRole userRole = new UserRole();
@@ -203,5 +193,102 @@ public class UserService extends ServiceImpl<UserMapper, User> implements UserSe
         userRole.setRoleId(studentRole.getId());
         userRoleMapper.insert(userRole);
         return true;
+    }
+
+    @Override
+    public User getUserById(String userId) {
+        return userMapper.selectById(userId);
+    }
+
+    @Override
+    public List<User> getAllStudents() {
+        // 1. 获取 STUDENT 角色的 ID
+        Role studentRole = roleMapper.selectOne(new QueryWrapper<Role>()
+                .eq("role_code", "STUDENT"));
+
+        // 如果系统中连 STUDENT 角色都没有，直接返回空列表
+        if (studentRole == null) {
+            return new ArrayList<>();
+        }
+
+        // 2. 在 user_role 表中找到所有关联了该角色 ID 的用户记录
+        List<UserRole> userRoles = userRoleMapper.selectList(new QueryWrapper<UserRole>()
+                .eq("role_id", studentRole.getId()));
+
+        if (userRoles == null || userRoles.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 3. 提取所有的用户 ID
+        List<String> studentIds = userRoles.stream()
+                .map(UserRole::getUserId)
+                .collect(Collectors.toList());
+
+        // 4. 根据用户 ID 批量查询并返回详细用户信息
+        // 建议：如果你有一个 UserDTO，可以在这里把 User 转换为 UserDTO 脱敏后再返回
+        return this.listByIds(studentIds);
+    }
+
+    @Override
+    public List<com.bnbu.user.DTO.UserRemoteDTO> searchUsers(com.bnbu.user.DTO.UserSearchDTO searchDTO) {
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+
+        // 1. 过滤 roleCode 对应的 userId
+        List<String> targetUserIds = null;
+        if (searchDTO.getRoleCode() != null && !searchDTO.getRoleCode().isEmpty()) {
+            Role role = roleMapper.selectOne(new QueryWrapper<Role>().eq("role_code", searchDTO.getRoleCode()));
+            if (role == null) {
+                return new ArrayList<>(); // 角色不存在，返回空
+            }
+            List<UserRole> userRoles = userRoleMapper
+                    .selectList(new QueryWrapper<UserRole>().eq("role_id", role.getId()));
+            if (userRoles == null || userRoles.isEmpty()) {
+                return new ArrayList<>(); // 该角色下没用户，返回空
+            }
+            List<String> roleUserIds = userRoles.stream().map(UserRole::getUserId).collect(Collectors.toList());
+
+            // 如果还传了 userIds 限制，取交集
+            if (searchDTO.getUserIds() != null && !searchDTO.getUserIds().isEmpty()) {
+                targetUserIds = roleUserIds.stream().filter(searchDTO.getUserIds()::contains)
+                        .collect(Collectors.toList());
+                if (targetUserIds.isEmpty()) {
+                    return new ArrayList<>(); // 交集为空
+                }
+            } else {
+                targetUserIds = roleUserIds;
+            }
+        } else {
+            if (searchDTO.getUserIds() != null && !searchDTO.getUserIds().isEmpty()) {
+                targetUserIds = searchDTO.getUserIds();
+            }
+        }
+
+        // 2. 根据 user_id 集合过滤
+        if (targetUserIds != null) {
+            queryWrapper.in("id", targetUserIds);
+        } else if (searchDTO.getUserIds() != null && searchDTO.getUserIds().isEmpty()) {
+            // 如果没传 roleCode，且 userIds 传了个空集合
+            return new ArrayList<>();
+        }
+
+        // 3. 关键字模糊查询 (name LIKE '%keyword%' OR email LIKE '%keyword%')
+        if (searchDTO.getKeyword() != null && !searchDTO.getKeyword().isEmpty()) {
+            String keyword = searchDTO.getKeyword();
+            queryWrapper.and(wrapper -> wrapper.like("real_name", keyword).or().like("email", keyword));
+        }
+
+        // 4. 执行查询
+        List<User> users = this.list(queryWrapper);
+
+        // 5. 转换为 DTO 返回
+        return users.stream().map(user -> {
+            com.bnbu.user.DTO.UserRemoteDTO dto = new com.bnbu.user.DTO.UserRemoteDTO();
+            dto.setId(user.getId());
+            dto.setUsername(user.getUsername());
+            dto.setRealName(user.getRealName());
+            dto.setEmail(user.getEmail());
+            dto.setPhone(user.getPhone());
+            return dto;
+        }).collect(Collectors.toList());
     }
 }

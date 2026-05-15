@@ -12,9 +12,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-import java.awt.*;
 import java.io.IOException;
-
 import java.util.Collections;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -29,11 +27,15 @@ public class SecurityHeaderFilter extends OncePerRequestFilter{
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
 
-
+        if ("true".equalsIgnoreCase(request.getHeader("X-Internal-Call"))) {
+            filterChain.doFilter(request, response);
+            return;
+        }
 
         String userId = request.getHeader("X-User-Id");
         System.out.println("【安全过滤器启动】正在拦截请求: " + request.getRequestURI());
         System.out.println("【安全过滤器】提取到的 X-User-Id 是: " + userId);
+
         if(userId != null && !userId.isEmpty()){
 
             String reidsKey = "auth:perms:" + userId;

@@ -1,6 +1,6 @@
 package com.bnbu.user.DTO;
 
-import com.bnbu.user.Entity.OrgUnit;
+
 import com.bnbu.user.Entity.User;
 import lombok.Data;
 
@@ -11,5 +11,5 @@ public class UserInfoDTO {
     private User user;
     private List<String> roles;
     private List<String> permissions;
-    private List<OrgUnit> orgUnits;
+
 }

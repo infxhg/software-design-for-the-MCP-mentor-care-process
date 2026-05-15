@@ -1,0 +1,44 @@
+server:
+  port: 8084 # Mentoring服务端口
+
+spring:
+  application:
+    name: mentoring-service
+  profiles:
+    active: dev
+
+  cloud:
+    nacos:
+      discovery:
+        server-addr: 8.134.126.87:8848
+        namespace: public
+      config:
+        server-addr: 8.134.126.87:8848
+        file-extension: yaml
+
+  config:
+    import:
+      - optional:nacos:${spring.application.name}-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}
+
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://rm-7xvkq7eswp47232at3o.mysql.rds.aliyuncs.com:3306/mentoring-service?serverTimezone=UTC&characterEncoding=utf8
+    username: root
+    password: 1603845288aA
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.bnbu.mentoring.Entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: assign_uuid
+
+feign:
+  client:
+    config:
+      default:
+        connectTimeout: 5000
+        readTimeout: 5000

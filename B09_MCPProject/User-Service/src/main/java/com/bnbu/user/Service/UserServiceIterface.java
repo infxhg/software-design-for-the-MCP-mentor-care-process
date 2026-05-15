@@ -5,6 +5,8 @@ import com.bnbu.user.DTO.UserInfoDTO;
 import com.bnbu.user.Entity.User;
 import io.lettuce.core.dynamic.annotation.Param;
 
+import java.util.List;
+
 public interface UserServiceIterface extends IService<User> {
 
     public String login(String username,String password);
@@ -16,4 +18,10 @@ public interface UserServiceIterface extends IService<User> {
     public boolean register(String emailAccount);
 
     public boolean verify(User user, String code);
+
+    public User getUserById(String UserId);
+
+    public List<User> getAllStudents();
+
+    public List<com.bnbu.user.DTO.UserRemoteDTO> searchUsers(com.bnbu.user.DTO.UserSearchDTO searchDTO);
 }
