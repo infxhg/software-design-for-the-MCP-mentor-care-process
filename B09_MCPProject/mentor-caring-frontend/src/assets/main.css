@@ -25,3 +25,52 @@ textarea,
 select {
   font-family: inherit;
 }
+
+.page-card {
+  background: white;
+  padding: 28px;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+}
+
+.desc {
+  color: #6b7280;
+}
+
+button {
+  padding: 9px 16px;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+button.secondary {
+  background: #6b7280;
+}
+
+button.danger {
+  background: #dc2626;
+}
+
+button:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
+.error {
+  color: #dc2626;
+}
+
+.success {
+  color: #047857;
+}
+
+.warning-box {
+  margin-top: 18px;
+  padding: 14px;
+  background: #fee2e2;
+  color: #b91c1c;
+  border-radius: 8px;
+}

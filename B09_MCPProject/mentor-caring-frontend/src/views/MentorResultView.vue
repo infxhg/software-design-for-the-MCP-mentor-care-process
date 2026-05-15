@@ -81,16 +81,19 @@ function showMembers() {
     return
   }
 
-  // 修改部分：
-  // 原来可能是 /groups/${selectedGroupId.value}/members
-  // 现在统一改成 /group-members/:groupId，避免路由混乱
+  sessionStorage.setItem(
+    'lastMentorSearchQuery',
+    JSON.stringify({
+      name: route.query.name || '',
+      email: route.query.email || '',
+      groupId: route.query.groupId || '',
+    }),
+  )
+
   router.push(`/group-members/${selectedGroupId.value}`)
 }
 
 function searchAgain() {
-  // 修改部分：
-  // 原来可能是 /mentors/search
-  // 现在统一改成 /search-mentor
   router.push('/search-mentor')
 }
 
@@ -100,21 +103,10 @@ function goHome() {
 </script>
 
 <style scoped>
-.page-card {
-  background: white;
-  padding: 28px;
-  border-radius: 12px;
-  border: 1px solid #e5e7eb;
-}
-
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-
-.desc {
-  color: #6b7280;
 }
 
 table {
@@ -138,18 +130,8 @@ th {
   margin-top: 20px;
 }
 
-button {
-  padding: 9px 16px;
+.actions button {
   margin-right: 10px;
-  background: #2563eb;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-button.secondary {
-  background: #6b7280;
 }
 
 .error {

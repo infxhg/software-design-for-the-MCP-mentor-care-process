@@ -14,10 +14,10 @@
     <div v-else class="no-function">
       <h2>No available test module</h2>
       <p>
-        Your current role does not have access to the selected test modules.
+        Your current role does not have access to the selected frontend test modules.
       </p>
       <p>
-        The current frontend test scope focuses on Mentor, MCP Coordinator, and Faculty Consultant.
+        The current test scope focuses on Mentor, MCP Coordinator, and Faculty Consultant.
       </p>
     </div>
 
@@ -30,26 +30,21 @@
       <p><strong>Mentor name:</strong> Dr. Smith</p>
       <p><strong>Mentor email:</strong> smith@university.edu</p>
       <p><strong>Group ID:</strong> G001</p>
+
+      <button class="danger" @click="resetData">Reset Mock Data</button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import type { Role } from '../data/mockData'
+import { getRoleLabel, resetMockData } from '../data/mockData'
 
-const role = localStorage.getItem('role') || 'student'
+const role = ((localStorage.getItem('role') as Role) || 'student')
 
 const roleLabel = computed(() => {
-  const roleMap: Record<string, string> = {
-    student: 'Student',
-    mentor: 'Mentor',
-    coordinator: 'MCP Coordinator',
-    consultant: 'Faculty Consultant',
-    admin: 'Administrator',
-    support: 'Supporting Staff',
-  }
-
-  return roleMap[role] || role
+  return getRoleLabel(role)
 })
 
 const cards = [
@@ -58,27 +53,32 @@ const cards = [
     description: 'Mentors and MCP Coordinators can search student information.',
     path: '/search-student',
     linkText: 'Go to Search',
-    roles: ['mentor', 'coordinator'],
+    roles: ['mentor', 'coordinator'] as Role[],
   },
   {
     title: 'Edit Interview Record',
     description: 'Mentors can edit student interview records after searching a student.',
     path: '/search-student',
     linkText: 'Search Student First',
-    roles: ['mentor'],
+    roles: ['mentor'] as Role[],
   },
   {
     title: 'Search Mentor Info',
     description: 'Faculty Consultants and MCP Coordinators can search mentor information.',
     path: '/search-mentor',
     linkText: 'Go to Search',
-    roles: ['consultant', 'coordinator'],
+    roles: ['consultant', 'coordinator'] as Role[],
   },
 ]
 
 const visibleCards = computed(() => {
   return cards.filter((card) => card.roles.includes(role))
 })
+
+function resetData() {
+  resetMockData()
+  alert('Mock data has been reset.')
+}
 </script>
 
 <style scoped>
@@ -138,5 +138,9 @@ const visibleCards = computed(() => {
 
 .test-info h2 {
   margin-top: 0;
+}
+
+button.danger {
+  margin-top: 12px;
 }
 </style>

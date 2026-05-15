@@ -4,10 +4,15 @@
       <div class="header">
         <div>
           <h1>Student Detail</h1>
-          <p class="desc">Student information and interview records are displayed in read-only mode.</p>
+          <p class="desc">
+            Student information and interview records are displayed in read-only mode.
+          </p>
         </div>
 
-        <button @click="goBack">Back</button>
+        <div>
+          <button class="secondary" @click="goBack">Back</button>
+          <button class="secondary" @click="goHome">Home</button>
+        </div>
       </div>
 
       <div class="info-grid">
@@ -45,7 +50,10 @@
       <div class="record-section">
         <div class="record-header">
           <h2>Interview Records</h2>
-          <button v-if="canEdit" @click="editRecord">Edit Interview Record</button>
+
+          <button v-if="canEdit" @click="editRecord">
+            Edit Interview Record
+          </button>
         </div>
 
         <table v-if="student.records.length > 0">
@@ -86,45 +94,47 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { findStudentById, getRole, currentUser } from '../data/mockData'
+import {
+  currentMockUser,
+  findStudentById,
+  getRole,
+} from '../data/mockData'
 
 const route = useRoute()
 const router = useRouter()
 
 const studentId = route.params.studentId as string
-const student = findStudentById(studentId)
+
+const student = computed(() => {
+  return findStudentById(studentId)
+})
 
 const canEdit = computed(() => {
-  const role = getRole()
-
-  if (!student) {
+  if (!student.value) {
     return false
   }
 
-  return role === 'mentor' && student.mentorId === currentUser.mentorId
+  return getRole() === 'mentor' && student.value.mentorId === currentMockUser.mentorId
 })
 
 function editRecord() {
-  if (!student) {
+  if (!student.value) {
     return
   }
 
-  router.push(`/edit-record/${student.studentId}`)
+  router.push(`/edit-record/${student.value.studentId}`)
 }
 
 function goBack() {
   router.push('/search-student')
 }
+
+function goHome() {
+  router.push('/main')
+}
 </script>
 
 <style scoped>
-.page-card {
-  background: white;
-  padding: 28px;
-  border-radius: 12px;
-  border: 1px solid #e5e7eb;
-}
-
 .header,
 .record-header {
   display: flex;
@@ -132,8 +142,8 @@ function goBack() {
   align-items: center;
 }
 
-.desc {
-  color: #6b7280;
+.header button {
+  margin-left: 8px;
 }
 
 .info-grid {
@@ -155,15 +165,6 @@ function goBack() {
 
 .record-section {
   margin-top: 30px;
-}
-
-button {
-  padding: 9px 16px;
-  background: #2563eb;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
 }
 
 table {

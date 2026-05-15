@@ -4,13 +4,15 @@
       <div class="header">
         <div>
           <h1>Edit Interview Record</h1>
-          <p class="desc">Only Mentor can add, modify, delete, save, or cancel interview records.</p>
+          <p class="desc">
+            Only Mentor can add, modify, delete, save, or cancel interview records.
+          </p>
         </div>
 
         <button class="secondary" @click="goBack">Back</button>
       </div>
 
-      <div v-if="!canEdit" class="warning">
+      <div v-if="!canEdit" class="warning-box">
         Authorization warning: You are not allowed to edit this interview record.
       </div>
 
@@ -44,17 +46,32 @@
 
           <div class="form-item">
             <label>Problem Statement</label>
-            <textarea v-model="record.problemStatement" maxlength="200"></textarea>
+            <textarea
+              v-model="record.problemStatement"
+              maxlength="200"
+              placeholder="Maximum 200 characters"
+            ></textarea>
+            <small>{{ record.problemStatement.length }}/200</small>
           </div>
 
           <div class="form-item">
             <label>Interview Summary</label>
-            <textarea v-model="record.interviewSummary" maxlength="300"></textarea>
+            <textarea
+              v-model="record.interviewSummary"
+              maxlength="300"
+              placeholder="Maximum 300 characters"
+            ></textarea>
+            <small>{{ record.interviewSummary.length }}/300</small>
           </div>
 
           <div class="form-item">
             <label>Follow-up Action</label>
-            <textarea v-model="record.followupAction" maxlength="200"></textarea>
+            <textarea
+              v-model="record.followupAction"
+              maxlength="200"
+              placeholder="Maximum 200 characters"
+            ></textarea>
+            <small>{{ record.followupAction.length }}/200</small>
           </div>
 
           <button class="danger" @click="deleteRecord(index)">Delete</button>
@@ -82,10 +99,11 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  currentUser,
+  currentMockUser,
   findStudentById,
   generateRecordId,
   getRole,
+  updateStudentRecords,
   type InterviewRecord,
 } from '../data/mockData'
 
@@ -100,7 +118,7 @@ const canEdit = computed(() => {
     return false
   }
 
-  return getRole() === 'mentor' && student.mentorId === currentUser.mentorId
+  return getRole() === 'mentor' && student.mentorId === currentMockUser.mentorId
 })
 
 const originalRecords = ref<InterviewRecord[]>(
@@ -155,12 +173,20 @@ function validateRecords(): boolean {
       return false
     }
 
-    if (
-      record.problemStatement.length > 200 ||
-      record.interviewSummary.length > 300 ||
-      record.followupAction.length > 200
-    ) {
-      message.value = 'Length limit warning: Text is too long.'
+    if (record.problemStatement.length > 200) {
+      message.value = 'Length limit warning: Problem statement is too long.'
+      isError.value = true
+      return false
+    }
+
+    if (record.interviewSummary.length > 300) {
+      message.value = 'Length limit warning: Interview summary is too long.'
+      isError.value = true
+      return false
+    }
+
+    if (record.followupAction.length > 200) {
+      message.value = 'Length limit warning: Follow-up action is too long.'
       isError.value = true
       return false
     }
@@ -181,11 +207,21 @@ function saveRecords() {
     return
   }
 
-  student.records = JSON.parse(JSON.stringify(records.value))
-  originalRecords.value = JSON.parse(JSON.stringify(records.value))
+  const ok = updateStudentRecords(student.studentId, records.value)
 
-  message.value = 'Interview records saved successfully.'
+  if (!ok) {
+    message.value = 'Save failed: student record not found.'
+    isError.value = true
+    return
+  }
+
+  originalRecords.value = JSON.parse(JSON.stringify(records.value))
+  message.value = 'Interview records saved successfully. Returning to Student Detail page...'
   isError.value = false
+
+  setTimeout(() => {
+    router.push(`/student-detail/${student.studentId}`)
+  }, 600)
 }
 
 function cancelEdit() {
@@ -204,29 +240,10 @@ function goBack() {
 </script>
 
 <style scoped>
-.page-card {
-  background: white;
-  padding: 28px;
-  border-radius: 12px;
-  border: 1px solid #e5e7eb;
-}
-
 .header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-}
-
-.desc {
-  color: #6b7280;
-}
-
-.warning {
-  margin-top: 20px;
-  padding: 14px;
-  background: #fee2e2;
-  color: #b91c1c;
-  border-radius: 8px;
 }
 
 .student-info {
@@ -272,23 +289,13 @@ textarea {
   min-height: 80px;
 }
 
+small {
+  color: #6b7280;
+}
+
 button {
-  padding: 9px 16px;
   margin-top: 14px;
   margin-right: 10px;
-  background: #2563eb;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-button.secondary {
-  background: #6b7280;
-}
-
-button.danger {
-  background: #dc2626;
 }
 
 .actions {

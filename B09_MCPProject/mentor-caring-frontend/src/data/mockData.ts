@@ -37,12 +37,23 @@ export interface Mentor {
   students: string[]
 }
 
-export const currentUser = {
+const STUDENT_STORAGE_KEY = 'mcs_mock_students'
+
+export const currentMockUser = {
   mentorId: 'M001',
   coordinatorDepartmentId: 'D001',
 }
 
-export const students: Student[] = [
+export const roleLabels: Record<Role, string> = {
+  student: 'Student',
+  mentor: 'Mentor',
+  coordinator: 'MCP Coordinator',
+  consultant: 'Faculty Consultant',
+  admin: 'Administrator',
+  support: 'Supporting Staff',
+}
+
+const defaultStudents: Student[] = [
   {
     studentId: 'S001',
     name: 'Alice Chen',
@@ -116,25 +127,57 @@ export const mentors: Mentor[] = [
   },
 ]
 
+function clone<T>(data: T): T {
+  return JSON.parse(JSON.stringify(data))
+}
+
+export function resetMockData() {
+  localStorage.setItem(STUDENT_STORAGE_KEY, JSON.stringify(defaultStudents))
+}
+
+export function getStudents(): Student[] {
+  const saved = localStorage.getItem(STUDENT_STORAGE_KEY)
+
+  if (!saved) {
+    resetMockData()
+    return clone(defaultStudents)
+  }
+
+  try {
+    return JSON.parse(saved) as Student[]
+  } catch {
+    resetMockData()
+    return clone(defaultStudents)
+  }
+}
+
+export function saveStudents(students: Student[]) {
+  localStorage.setItem(STUDENT_STORAGE_KEY, JSON.stringify(students))
+}
+
 export function getRole(): Role {
   return (localStorage.getItem('role') as Role) || 'student'
 }
 
-export function findStudentById(studentId: string) {
-  return students.find((student) => student.studentId === studentId)
+export function getRoleLabel(role: Role): string {
+  return roleLabels[role] || role
 }
 
-export function findMentorById(mentorId: string) {
-  return mentors.find((mentor) => mentor.mentorId === mentorId)
+export function findStudentById(studentId: string): Student | undefined {
+  return getStudents().find((student) => student.studentId === studentId)
+}
+
+export function findMentorByGroupId(groupId: string): Mentor | undefined {
+  return mentors.find((mentor) => mentor.groupId === groupId)
 }
 
 export function hasStudentAccess(student: Student, role: Role): boolean {
   if (role === 'mentor') {
-    return student.mentorId === currentUser.mentorId
+    return student.mentorId === currentMockUser.mentorId
   }
 
   if (role === 'coordinator') {
-    return student.departmentId === currentUser.coordinatorDepartmentId
+    return student.departmentId === currentMockUser.coordinatorDepartmentId
   }
 
   return false
@@ -146,10 +189,24 @@ export function hasMentorAccess(mentor: Mentor, role: Role): boolean {
   }
 
   if (role === 'coordinator') {
-    return mentor.departmentId === currentUser.coordinatorDepartmentId
+    return mentor.departmentId === currentMockUser.coordinatorDepartmentId
   }
 
   return false
+}
+
+export function updateStudentRecords(studentId: string, records: InterviewRecord[]) {
+  const students = getStudents()
+  const index = students.findIndex((student) => student.studentId === studentId)
+
+  if (index === -1) {
+    return false
+  }
+
+  students[index].records = clone(records)
+  saveStudents(students)
+
+  return true
 }
 
 export function generateRecordId(): string {

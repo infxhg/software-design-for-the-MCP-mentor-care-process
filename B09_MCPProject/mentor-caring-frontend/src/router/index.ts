@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import type { Role } from '../data/mockData'
 
 import LoginView from '../views/LoginView.vue'
 import MainView from '../views/MainView.vue'
@@ -26,7 +27,6 @@ const router = createRouter({
       component: MainView,
     },
 
-    // 只有 Mentor 和 MCP Coordinator 可以搜索学生信息
     {
       path: '/search-student',
       component: SearchStudentView,
@@ -34,8 +34,6 @@ const router = createRouter({
         allowedRoles: ['mentor', 'coordinator'],
       },
     },
-
-    // Student Detail 属于 Search Student Info 流程
     {
       path: '/student-detail/:studentId',
       component: StudentDetailView,
@@ -43,8 +41,6 @@ const router = createRouter({
         allowedRoles: ['mentor', 'coordinator'],
       },
     },
-
-    // 只有 Mentor 可以编辑 interview record
     {
       path: '/edit-record/:studentId',
       component: EditRecordView,
@@ -53,7 +49,6 @@ const router = createRouter({
       },
     },
 
-    // 只有 Faculty Consultant 和 MCP Coordinator 可以搜索导师信息
     {
       path: '/search-mentor',
       component: SearchMentorView,
@@ -61,8 +56,6 @@ const router = createRouter({
         allowedRoles: ['consultant', 'coordinator'],
       },
     },
-
-    // Mentor search result 也只允许 Consultant 和 Coordinator 进入
     {
       path: '/mentor-result',
       component: MentorResultView,
@@ -70,8 +63,6 @@ const router = createRouter({
         allowedRoles: ['consultant', 'coordinator'],
       },
     },
-
-    // Group members 也只允许 Consultant 和 Coordinator 进入
     {
       path: '/group-members/:groupId',
       component: GroupMembersView,
@@ -79,8 +70,6 @@ const router = createRouter({
         allowedRoles: ['consultant', 'coordinator'],
       },
     },
-
-    // 从 group members 点学生记录，也只允许 Consultant 和 Coordinator 进入
     {
       path: '/student-record/:studentId',
       component: StudentRecordView,
@@ -93,16 +82,16 @@ const router = createRouter({
 
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('token')
-  const role = localStorage.getItem('role')
+  const role = localStorage.getItem('role') as Role | null
 
   if (to.path !== '/login' && !token) {
     next('/login')
     return
   }
 
-  const allowedRoles = to.meta.allowedRoles as string[] | undefined
+  const allowedRoles = to.meta.allowedRoles as Role[] | undefined
 
-  if (allowedRoles && role && !allowedRoles.includes(role)) {
+  if (allowedRoles && (!role || !allowedRoles.includes(role))) {
     alert('Authorization warning: You do not have permission to access this page.')
     next('/main')
     return

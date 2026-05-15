@@ -79,6 +79,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { findStudentById } from '../data/mockData'
 
@@ -86,39 +87,26 @@ const route = useRoute()
 const router = useRouter()
 
 const studentId = route.params.studentId as string
-const student = findStudentById(studentId)
+
+const student = computed(() => {
+  return findStudentById(studentId)
+})
 
 function goBack() {
-  if (student) {
-    // 修改部分：
-    // 原来可能是 /groups/${student.groupId}/members
-    // 现在统一改成 /group-members/:groupId
-    router.push(`/group-members/${student.groupId}`)
-  } else {
-    // 修改部分：
-    // 原来可能是 /mentors/search
-    // 现在统一改成 /search-mentor
-    router.push('/search-mentor')
+  if (student.value) {
+    router.push(`/group-members/${student.value.groupId}`)
+    return
   }
+
+  router.push('/search-mentor')
 }
 </script>
 
 <style scoped>
-.page-card {
-  background: white;
-  padding: 28px;
-  border-radius: 12px;
-  border: 1px solid #e5e7eb;
-}
-
 .header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-}
-
-.desc {
-  color: #6b7280;
 }
 
 .info-grid {
@@ -137,19 +125,6 @@ function goBack() {
 
 .info-grid p {
   margin-bottom: 0;
-}
-
-button {
-  padding: 9px 16px;
-  background: #2563eb;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-button.secondary {
-  background: #6b7280;
 }
 
 table {

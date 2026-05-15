@@ -24,6 +24,7 @@
 
       <div class="buttons">
         <button @click="searchMentor">Search</button>
+        <button class="secondary" @click="goBack">Back</button>
         <button class="secondary" @click="goHome">Home</button>
       </div>
 
@@ -33,11 +34,11 @@
     </div>
 
     <div class="test-box">
-      <h3>Test Cases</h3>
-      <p>SMI-01: Search by mentor name: Dr. Smith</p>
-      <p>SMI-02: Search by email: smith@university.edu</p>
-      <p>SMI-03: Search by group ID: G001</p>
-      <p>SMI-07: Leave all fields empty.</p>
+      <h3>Test Data</h3>
+      <p><strong>Mentor name:</strong> Dr. Smith</p>
+      <p><strong>Mentor email:</strong> smith@university.edu</p>
+      <p><strong>Group ID:</strong> G001</p>
+      <p><strong>Outside coordinator scope:</strong> G002</p>
     </div>
   </div>
 </template>
@@ -70,13 +71,19 @@ function searchMentor() {
     return
   }
 
-  const role = getRole()
-
-  if (role !== 'consultant' && role !== 'coordinator') {
-    message.value = 'Authorization warning: You do not have permission to search mentor info.'
+  if (emailInput && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailInput)) {
+    message.value = 'Warning: Invalid mentor email format.'
     isError.value = true
     return
   }
+
+  if (groupInput && !/^G\d{3}$/.test(groupInput)) {
+    message.value = 'Warning: Invalid group ID format. Example format: G001.'
+    isError.value = true
+    return
+  }
+
+  const role = getRole()
 
   const result = mentors.filter((mentor) => {
     const matchName = nameInput && mentor.name.toLowerCase().includes(nameInput)
@@ -110,23 +117,16 @@ function searchMentor() {
   })
 }
 
+function goBack() {
+  router.back()
+}
+
 function goHome() {
   router.push('/main')
 }
 </script>
 
 <style scoped>
-.page-card {
-  background: white;
-  padding: 28px;
-  border-radius: 12px;
-  border: 1px solid #e5e7eb;
-}
-
-.desc {
-  color: #6b7280;
-}
-
 .form {
   max-width: 460px;
   margin-top: 24px;
@@ -154,18 +154,8 @@ input {
   margin-top: 16px;
 }
 
-button {
-  padding: 10px 18px;
+.buttons button {
   margin-right: 10px;
-  background: #2563eb;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-button.secondary {
-  background: #6b7280;
 }
 
 .message {

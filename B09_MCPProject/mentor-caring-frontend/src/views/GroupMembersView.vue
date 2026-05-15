@@ -30,7 +30,11 @@
         <tbody>
         <tr v-for="student in groupStudents" :key="student.studentId">
           <td>{{ student.studentId }}</td>
-          <td>{{ student.name }}</td>
+          <td>
+            <button class="link-button" @click="viewStudentRecord(student.studentId)">
+              {{ student.name }}
+            </button>
+          </td>
           <td>{{ student.major }}</td>
           <td>{{ student.status }}</td>
           <td>
@@ -53,55 +57,47 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { mentors, students } from '../data/mockData'
+import { findMentorByGroupId, getStudents } from '../data/mockData'
 
 const route = useRoute()
 const router = useRouter()
 
 const groupId = route.params.groupId as string
 
-const mentor = mentors.find((item) => item.groupId === groupId)
+const mentor = findMentorByGroupId(groupId)
 
 const groupStudents = computed(() => {
   if (!mentor) {
     return []
   }
 
-  return students.filter((student) => mentor.students.includes(student.studentId))
+  return getStudents().filter((student) => mentor.students.includes(student.studentId))
 })
 
 function viewStudentRecord(studentId: string) {
-  // 修改部分：
-  // 原来可能是 /students/${studentId}/record
-  // 现在统一改成 /student-record/:studentId
   router.push(`/student-record/${studentId}`)
 }
 
 function goBack() {
-  // 修改部分：
-  // 这里不要直接 push('/mentor-result')
-  // 因为 /mentor-result 需要 query 参数，直接跳会丢失搜索结果
-  // 用 router.back() 可以回到刚才带搜索结果的 MentorResult 页面
-  router.back()
+  const savedQuery = sessionStorage.getItem('lastMentorSearchQuery')
+
+  if (savedQuery) {
+    router.push({
+      path: '/mentor-result',
+      query: JSON.parse(savedQuery),
+    })
+    return
+  }
+
+  router.push('/search-mentor')
 }
 </script>
 
 <style scoped>
-.page-card {
-  background: white;
-  padding: 28px;
-  border-radius: 12px;
-  border: 1px solid #e5e7eb;
-}
-
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-
-.desc {
-  color: #6b7280;
 }
 
 .mentor-info {
@@ -128,21 +124,17 @@ th {
   background: #f3f4f6;
 }
 
-button {
-  padding: 8px 14px;
-  background: #2563eb;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-button.secondary {
-  background: #6b7280;
-}
-
 .empty {
   margin-top: 18px;
   color: #6b7280;
+}
+
+.link-button {
+  background: transparent;
+  color: #2563eb;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
 }
 </style>

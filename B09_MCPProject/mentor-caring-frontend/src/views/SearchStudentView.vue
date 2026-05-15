@@ -12,6 +12,7 @@
 
       <div class="buttons">
         <button @click="searchStudent">Search</button>
+        <button class="secondary" @click="goBack">Back</button>
         <button class="secondary" @click="goHome">Home</button>
       </div>
 
@@ -22,8 +23,8 @@
 
     <div class="test-box">
       <h3>Test Data</h3>
-      <p><strong>S001</strong>: valid student in mentor's group</p>
-      <p><strong>S002</strong>: valid student outside mentor's group</p>
+      <p><strong>S001</strong>: valid student inside mentor/coordinator scope</p>
+      <p><strong>S002</strong>: valid student outside mentor/coordinator scope</p>
       <p><strong>S999</strong>: non-existing student</p>
       <p><strong>ABC</strong>: invalid student ID format</p>
     </div>
@@ -75,8 +76,11 @@ function searchStudent() {
     return
   }
 
-  // 修改部分：搜索成功后跳到新的学生详情路由
   router.push(`/student-detail/${student.studentId}`)
+}
+
+function goBack() {
+  router.back()
 }
 
 function goHome() {
@@ -85,17 +89,6 @@ function goHome() {
 </script>
 
 <style scoped>
-.page-card {
-  background: white;
-  padding: 28px;
-  border-radius: 12px;
-  border: 1px solid #e5e7eb;
-}
-
-.desc {
-  color: #6b7280;
-}
-
 .form {
   max-width: 420px;
   margin-top: 24px;
@@ -119,18 +112,8 @@ input {
   margin-top: 16px;
 }
 
-button {
-  padding: 10px 18px;
+.buttons button {
   margin-right: 10px;
-  background: #2563eb;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-button.secondary {
-  background: #6b7280;
 }
 
 .message {

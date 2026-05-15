@@ -33,10 +33,11 @@
       </form>
 
       <div class="hint">
-        <p>Suggested test roles:</p>
-        <p>Mentor: search S001</p>
-        <p>Coordinator: search S001</p>
-        <p>Consultant: search mentor info</p>
+        <p><strong>Suggested test roles:</strong></p>
+        <p>Mentor: Search Student Info and Edit Interview Record</p>
+        <p>Coordinator: Search Student Info and Search Mentor Info</p>
+        <p>Consultant: Search Mentor Info</p>
+        <p>Student/Admin/Support: No test module in current test plan</p>
       </div>
     </div>
   </div>
@@ -46,6 +47,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { Role } from '../data/mockData'
+import { resetMockData } from '../data/mockData'
 
 const router = useRouter()
 
@@ -58,6 +60,10 @@ function login() {
   if (!account.value.trim() || !password.value.trim()) {
     errorMessage.value = 'Please enter account and password.'
     return
+  }
+
+  if (!localStorage.getItem('mcs_mock_students')) {
+    resetMockData()
   }
 
   localStorage.setItem('token', 'mock-token')
@@ -77,7 +83,7 @@ function login() {
 }
 
 .login-card {
-  width: 400px;
+  width: 430px;
   padding: 32px;
   background: white;
   border-radius: 14px;

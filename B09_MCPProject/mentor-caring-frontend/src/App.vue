@@ -8,19 +8,11 @@
 
       <router-link to="/main">Home</router-link>
 
-      <!-- Mentor 和 Coordinator 才能看到 Search Student Info -->
-      <router-link
-        v-if="canShow(['mentor', 'coordinator'])"
-        to="/search-student"
-      >
+      <router-link v-if="canShow(['mentor', 'coordinator'])" to="/search-student">
         Search Student Info
       </router-link>
 
-      <!-- Consultant 和 Coordinator 才能看到 Search Mentor Info -->
-      <router-link
-        v-if="canShow(['consultant', 'coordinator'])"
-        to="/search-mentor"
-      >
+      <router-link v-if="canShow(['consultant', 'coordinator'])" to="/search-mentor">
         Search Mentor Info
       </router-link>
     </aside>
@@ -41,11 +33,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import type { Role } from './data/mockData'
+import { getRoleLabel } from './data/mockData'
 
 const route = useRoute()
 const router = useRouter()
 
-const currentRole = ref(localStorage.getItem('role') || 'student')
+const currentRole = ref<Role>((localStorage.getItem('role') as Role) || 'student')
 
 const isLoginPage = computed(() => {
   return route.path === '/login'
@@ -54,25 +48,16 @@ const isLoginPage = computed(() => {
 watch(
   () => route.fullPath,
   () => {
-    currentRole.value = localStorage.getItem('role') || 'student'
+    currentRole.value = ((localStorage.getItem('role') as Role) || 'student')
   },
   { immediate: true },
 )
 
 const roleLabel = computed(() => {
-  const roleMap: Record<string, string> = {
-    student: 'Student',
-    mentor: 'Mentor',
-    coordinator: 'MCP Coordinator',
-    consultant: 'Faculty Consultant',
-    admin: 'Administrator',
-    support: 'Supporting Staff',
-  }
-
-  return roleMap[currentRole.value] || currentRole.value
+  return getRoleLabel(currentRole.value)
 })
 
-function canShow(roles: string[]) {
+function canShow(roles: Role[]) {
   return roles.includes(currentRole.value)
 }
 
