@@ -1,119 +1,86 @@
 <template>
   <div class="page-card">
-    <div v-if="student">
-      <div class="header">
-        <div>
-          <h1>Student Detail</h1>
-          <p class="desc">Student information and interview records are displayed in read-only mode.</p>
-        </div>
+    <h1>Search Student's Info</h1>
 
-        <button @click="goBack">Back</button>
+    <p class="desc">
+      Mentors and MCP Coordinators can search student information by student ID.
+    </p>
+
+    <div class="form">
+      <label>Student ID</label>
+      <input v-model="studentId" type="text" placeholder="Example: S001" />
+
+      <div class="buttons">
+        <button @click="searchStudent">Search</button>
+        <button class="secondary" @click="goHome">Home</button>
       </div>
 
-      <div class="info-grid">
-        <div>
-          <strong>Student ID</strong>
-          <p>{{ student.studentId }}</p>
-        </div>
-
-        <div>
-          <strong>Name</strong>
-          <p>{{ student.name }}</p>
-        </div>
-
-        <div>
-          <strong>Major</strong>
-          <p>{{ student.major }}</p>
-        </div>
-
-        <div>
-          <strong>Status</strong>
-          <p>{{ student.status }}</p>
-        </div>
-
-        <div>
-          <strong>Group ID</strong>
-          <p>{{ student.groupId }}</p>
-        </div>
-
-        <div>
-          <strong>Mentor ID</strong>
-          <p>{{ student.mentorId }}</p>
-        </div>
-      </div>
-
-      <div class="record-section">
-        <div class="record-header">
-          <h2>Interview Records</h2>
-          <button v-if="canEdit" @click="editRecord">Edit Interview Record</button>
-        </div>
-
-        <table v-if="student.records.length > 0">
-          <thead>
-          <tr>
-            <th>Record ID</th>
-            <th>Date</th>
-            <th>Time</th>
-            <th>Problem Statement</th>
-            <th>Interview Summary</th>
-            <th>Follow-up Action</th>
-          </tr>
-          </thead>
-
-          <tbody>
-          <tr v-for="record in student.records" :key="record.recordId">
-            <td>{{ record.recordId }}</td>
-            <td>{{ record.date }}</td>
-            <td>{{ record.time }}</td>
-            <td>{{ record.problemStatement }}</td>
-            <td>{{ record.interviewSummary }}</td>
-            <td>{{ record.followupAction }}</td>
-          </tr>
-          </tbody>
-        </table>
-
-        <p v-else class="empty">No interview records.</p>
-      </div>
+      <p v-if="message" class="message" :class="{ error: isError }">
+        {{ message }}
+      </p>
     </div>
 
-    <div v-else>
-      <h1>Student Not Found</h1>
-      <button @click="goBack">Back</button>
+    <div class="test-box">
+      <h3>Test Data</h3>
+      <p><strong>S001</strong>: valid student in mentor's group</p>
+      <p><strong>S002</strong>: valid student outside mentor's group</p>
+      <p><strong>S999</strong>: non-existing student</p>
+      <p><strong>ABC</strong>: invalid student ID format</p>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { findStudentById, getRole, currentUser } from '../data/mockData'
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { findStudentById, getRole, hasStudentAccess } from '../data/mockData'
 
-const route = useRoute()
 const router = useRouter()
 
-const studentId = route.params.studentId as string
-const student = findStudentById(studentId)
+const studentId = ref('')
+const message = ref('')
+const isError = ref(false)
 
-const canEdit = computed(() => {
-  const role = getRole()
+function searchStudent() {
+  message.value = ''
+  isError.value = false
 
-  if (!student) {
-    return false
-  }
+  const input = studentId.value.trim().toUpperCase()
 
-  return role === 'mentor' && student.mentorId === currentUser.mentorId
-})
-
-function editRecord() {
-  if (!student) {
+  if (!input) {
+    message.value = 'Warning: Student ID cannot be empty.'
+    isError.value = true
     return
   }
 
-  router.push(`/students/${student.studentId}/edit-record`)
+  if (!/^S\d{3}$/.test(input)) {
+    message.value = 'Warning: Invalid student ID format. Example format: S001.'
+    isError.value = true
+    return
+  }
+
+  const student = findStudentById(input)
+
+  if (!student) {
+    message.value = 'No matching student record is found.'
+    isError.value = true
+    return
+  }
+
+  const role = getRole()
+
+  if (!hasStudentAccess(student, role)) {
+    message.value = 'Authorization warning: You do not have permission to view this student.'
+    isError.value = true
+    return
+  }
+
+  // 修改部分：搜索成功后跳到新的学生详情路由
+  router.push(`/student-detail/${student.studentId}`)
 }
 
-function goBack() {
-  router.push('/students/search')
+function goHome() {
+  router.push('/main')
 }
 </script>
 
@@ -125,40 +92,36 @@ function goBack() {
   border: 1px solid #e5e7eb;
 }
 
-.header,
-.record-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
 .desc {
   color: #6b7280;
 }
 
-.info-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 18px;
+.form {
+  max-width: 420px;
   margin-top: 24px;
 }
 
-.info-grid div {
-  padding: 16px;
-  background: #f9fafb;
-  border-radius: 8px;
+label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
 }
 
-.info-grid p {
-  margin-bottom: 0;
+input {
+  width: 100%;
+  padding: 10px;
+  box-sizing: border-box;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
 }
 
-.record-section {
-  margin-top: 30px;
+.buttons {
+  margin-top: 16px;
 }
 
 button {
-  padding: 9px 16px;
+  padding: 10px 18px;
+  margin-right: 10px;
   background: #2563eb;
   color: white;
   border: none;
@@ -166,24 +129,24 @@ button {
   cursor: pointer;
 }
 
-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 16px;
+button.secondary {
+  background: #6b7280;
 }
 
-th,
-td {
-  padding: 10px;
-  border: 1px solid #e5e7eb;
-  text-align: left;
+.message {
+  margin-top: 14px;
+  color: #047857;
 }
 
-th {
-  background: #f3f4f6;
+.error {
+  color: #dc2626;
 }
 
-.empty {
-  color: #6b7280;
+.test-box {
+  margin-top: 30px;
+  padding: 16px;
+  background: #f9fafb;
+  border-radius: 8px;
+  color: #374151;
 }
 </style>

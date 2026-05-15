@@ -90,9 +90,15 @@ const student = findStudentById(studentId)
 
 function goBack() {
   if (student) {
-    router.push(`/groups/${student.groupId}/members`)
+    // 修改部分：
+    // 原来可能是 /groups/${student.groupId}/members
+    // 现在统一改成 /group-members/:groupId
+    router.push(`/group-members/${student.groupId}`)
   } else {
-    router.push('/mentors/search')
+    // 修改部分：
+    // 原来可能是 /mentors/search
+    // 现在统一改成 /search-mentor
+    router.push('/search-mentor')
   }
 }
 </script>

@@ -7,19 +7,25 @@
       <div class="card">
         <h3>Search Student Info</h3>
         <p>Mentors and MCP Coordinators can search student information.</p>
-        <router-link to="/students/search">Go to Search</router-link>
+
+        <!-- 修改部分：这里必须是 /search-student -->
+        <router-link to="/search-student">Go to Search</router-link>
       </div>
 
       <div class="card">
         <h3>Edit Interview Record</h3>
         <p>Mentors can edit student interview records after searching a student.</p>
-        <router-link to="/students/search">Search Student First</router-link>
+
+        <!-- 修改部分：编辑前也先去学生搜索页 -->
+        <router-link to="/search-student">Search Student First</router-link>
       </div>
 
       <div class="card">
         <h3>Search Mentor Info</h3>
         <p>Faculty Consultants and MCP Coordinators can search mentor information.</p>
-        <router-link to="/mentors/search">Go to Search</router-link>
+
+        <!-- 修改部分：这里必须是 /search-mentor -->
+        <router-link to="/search-mentor">Go to Search</router-link>
       </div>
     </div>
 

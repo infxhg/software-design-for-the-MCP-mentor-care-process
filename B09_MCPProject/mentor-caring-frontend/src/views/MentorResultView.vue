@@ -81,11 +81,17 @@ function showMembers() {
     return
   }
 
-  router.push(`/groups/${selectedGroupId.value}/members`)
+  // 修改部分：
+  // 原来可能是 /groups/${selectedGroupId.value}/members
+  // 现在统一改成 /group-members/:groupId，避免路由混乱
+  router.push(`/group-members/${selectedGroupId.value}`)
 }
 
 function searchAgain() {
-  router.push('/mentors/search')
+  // 修改部分：
+  // 原来可能是 /mentors/search
+  // 现在统一改成 /search-mentor
+  router.push('/search-mentor')
 }
 
 function goHome() {

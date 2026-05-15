@@ -109,11 +109,11 @@ function editRecord() {
     return
   }
 
-  router.push(`/students/${student.studentId}/edit-record`)
+  router.push(`/edit-record/${student.studentId}`)
 }
 
 function goBack() {
-  router.push('/students/search')
+  router.push('/search-student')
 }
 </script>
 

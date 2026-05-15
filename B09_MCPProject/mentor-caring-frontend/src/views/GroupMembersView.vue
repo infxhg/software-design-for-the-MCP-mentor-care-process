@@ -71,11 +71,18 @@ const groupStudents = computed(() => {
 })
 
 function viewStudentRecord(studentId: string) {
-  router.push(`/students/${studentId}/record`)
+  // 修改部分：
+  // 原来可能是 /students/${studentId}/record
+  // 现在统一改成 /student-record/:studentId
+  router.push(`/student-record/${studentId}`)
 }
 
 function goBack() {
-  router.push('/mentors/result')
+  // 修改部分：
+  // 这里不要直接 push('/mentor-result')
+  // 因为 /mentor-result 需要 query 参数，直接跳会丢失搜索结果
+  // 用 router.back() 可以回到刚才带搜索结果的 MentorResult 页面
+  router.back()
 }
 </script>
 

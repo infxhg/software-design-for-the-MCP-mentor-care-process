@@ -196,9 +196,9 @@ function cancelEdit() {
 
 function goBack() {
   if (student) {
-    router.push(`/students/${student.studentId}`)
+    router.push(`/student-detail/${student.studentId}`)
   } else {
-    router.push('/students/search')
+    router.push('/search-student')
   }
 }
 </script>

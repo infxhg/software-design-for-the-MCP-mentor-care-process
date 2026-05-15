@@ -25,32 +25,46 @@ const router = createRouter({
       path: '/main',
       component: MainView,
     },
+
+    // 修改部分：Search Student Info 不再使用 /students/search，避免被 /students/:studentId 吃掉
     {
-      path: '/students/search',
+      path: '/search-student',
       component: SearchStudentView,
     },
+
+    // 修改部分：学生详情页改成明确路径 /student-detail/:studentId
     {
-      path: '/students/:studentId',
+      path: '/student-detail/:studentId',
       component: StudentDetailView,
     },
+
+    // 修改部分：编辑记录页改成明确路径 /edit-record/:studentId
     {
-      path: '/students/:studentId/edit-record',
+      path: '/edit-record/:studentId',
       component: EditRecordView,
     },
+
+    // 修改部分：Search Mentor Info 不再使用 /mentors/search
     {
-      path: '/mentors/search',
+      path: '/search-mentor',
       component: SearchMentorView,
     },
+
+    // 修改部分：导师结果页改成 /mentor-result
     {
-      path: '/mentors/result',
+      path: '/mentor-result',
       component: MentorResultView,
     },
+
+    // 修改部分：小组成员页改成 /group-members/:groupId
     {
-      path: '/groups/:groupId/members',
+      path: '/group-members/:groupId',
       component: GroupMembersView,
     },
+
+    // 修改部分：学生记录页改成 /student-record/:studentId
     {
-      path: '/students/:studentId/record',
+      path: '/student-record/:studentId',
       component: StudentRecordView,
     },
   ],

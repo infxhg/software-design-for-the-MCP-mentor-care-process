@@ -101,7 +101,7 @@ function searchMentor() {
   }
 
   router.push({
-    path: '/mentors/result',
+    path: '/mentor-result',
     query: {
       name: mentorName.value.trim(),
       email: mentorEmail.value.trim(),
