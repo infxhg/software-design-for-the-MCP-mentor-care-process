@@ -16,4 +16,8 @@ public interface SysUserOrgMapper extends BaseMapper<SysUserOrg> {
     @Select("SELECT user_id FROM sys_user_org WHERE org_unit_id = #{orgUnitId}")
     List<String> selectUserIdsByOrgId(@Param("orgUnitId") String orgUnitId);
 
+    // 根据用户 ID 查询该用户所属的所有组织 ID（用于 Coordinator 数据范围校验）
+    @Select("SELECT org_unit_id FROM sys_user_org WHERE user_id = #{userId}")
+    List<String> selectOrgIdsByUserId(@Param("userId") String userId);
+
 }

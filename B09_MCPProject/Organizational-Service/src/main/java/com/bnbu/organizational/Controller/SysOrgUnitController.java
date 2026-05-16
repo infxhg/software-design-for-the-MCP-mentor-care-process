@@ -117,4 +117,42 @@ public class SysOrgUnitController {
         }
         return Result.success("查询成功", result.getData());
     }
+
+    /**
+     * 功能：Coordinator 通过用户 ID 查询 Mentor 或 Student，数据范围限定在自己的 Department
+     * 描述：后端自动读取当前 Coordinator 的部门，校验目标用户是否在同一部门内，防止跨部门查询
+     * GET /api/org/my-dept/member/{userId}
+     */
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('ROLE_COORDINATOR')")
+    @GetMapping("/my-dept/member/{userId}")
+    public Result searchMemberInMyDept(
+            @PathVariable String userId,
+            @RequestHeader(value = "X-User-Id", required = false) String coordinatorId) {
+        if (coordinatorId == null || coordinatorId.isEmpty()) {
+            return Result.error("未获取到当前登录的 Coordinator ID，请通过网关访问");
+        }
+        Object memberData = sysOrgUnitService.searchMemberInMyDept(coordinatorId, userId);
+        if (memberData == null) {
+            return Result.error("该用户不存在或不在您的部门管理范围内");
+        }
+        return Result.success("查询成功", memberData);
+    }
+
+    /**
+     * 功能：Coordinator 通过姓名或邮箱搜索自己所属部门内的所有 Mentor
+     * 描述：后端自动推断 Coordinator 的部门，无需手动传 orgUnitId
+     * GET /api/org/my-dept/mentors?keyword=xxx
+     */
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('ROLE_COORDINATOR')")
+    @GetMapping("/my-dept/mentors")
+    public Result searchMentorsInMyDept(
+            @RequestParam(required = false) String keyword,
+            @RequestHeader(value = "X-User-Id", required = false) String coordinatorId) {
+        if (coordinatorId == null || coordinatorId.isEmpty()) {
+            return Result.error("未获取到当前登录的 Coordinator ID，请通过网关访问");
+        }
+        List<com.bnbu.organizational.DTO.MentorVO> mentors = sysOrgUnitService.searchMentorsInMyDept(coordinatorId, keyword);
+        return Result.success("获取成功", mentors);
+    }
+
 }

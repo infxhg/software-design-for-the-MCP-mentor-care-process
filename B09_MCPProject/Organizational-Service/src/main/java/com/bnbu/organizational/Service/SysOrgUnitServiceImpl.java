@@ -187,4 +187,63 @@ public class SysOrgUnitServiceImpl extends ServiceImpl<SysOrgUnitMapper, SysOrgU
     public com.alibaba.nacos.api.model.v2.Result getStudentById(String studentId) {
         return userFeignClient.getStudentById(studentId);
     }
+
+    @Override
+    public Object searchMemberInMyDept(String coordinatorId, String targetUserId) {
+        // 1. 查询当前 Coordinator 所属的所有组织 ID
+        List<String> coordinatorOrgIds = sysUserOrgMapper.selectOrgIdsByUserId(coordinatorId);
+        if (coordinatorOrgIds == null || coordinatorOrgIds.isEmpty()) {
+            return null; // Coordinator 未绑定任何部门
+        }
+
+        // 2. 查询目标用户所属的所有组织 ID
+        List<String> targetOrgIds = sysUserOrgMapper.selectOrgIdsByUserId(targetUserId);
+        if (targetOrgIds == null || targetOrgIds.isEmpty()) {
+            return null; // 目标用户不在任何组织中
+        }
+
+        // 3. 判断两者是否有共同的组织单元（部门范围校验）
+        boolean inSameDept = targetOrgIds.stream().anyMatch(coordinatorOrgIds::contains);
+        if (!inSameDept) {
+            return null; // 目标用户不在 Coordinator 的部门范围内
+        }
+
+        // 4. 通过 Feign 从 User-Service 获取目标用户信息并返回
+        com.alibaba.nacos.api.model.v2.Result result = userFeignClient.getStudentById(targetUserId);
+        if (result != null && result.getCode() == 200) {
+            return result.getData();
+        }
+        return null;
+    }
+
+    @Override
+    public List<MentorVO> searchMentorsInMyDept(String coordinatorId, String keyword) {
+        // 1. 查询 Coordinator 所属的所有组织 ID
+        List<String> coordinatorOrgIds = sysUserOrgMapper.selectOrgIdsByUserId(coordinatorId);
+        if (CollectionUtils.isEmpty(coordinatorOrgIds)) {
+            return new ArrayList<>();
+        }
+
+        // 2. 对每个组织 ID，获取其下的所有用户 ID，合并去重
+        List<String> allUserIdsInDept = coordinatorOrgIds.stream()
+                .flatMap(orgId -> sysUserOrgMapper.selectUserIdsByOrgId(orgId).stream())
+                .distinct()
+                .collect(Collectors.toList());
+
+        if (CollectionUtils.isEmpty(allUserIdsInDept)) {
+            return new ArrayList<>();
+        }
+
+        // 3. 构造搜索条件：角色=MENTOR，用户范围=部门内所有用户，keyword 匹配姓名或邮箱
+        UserSearchDTO searchDTO = new UserSearchDTO();
+        searchDTO.setRoleCode("MENTOR");
+        searchDTO.setUserIds(allUserIdsInDept);
+        searchDTO.setKeyword(keyword);
+
+        // 4. 复用已有的 executeMentorSearch 查询逻辑
+        SysOrgUnit firstOrg = this.getById(coordinatorOrgIds.get(0));
+        String deptName = firstOrg != null ? firstOrg.getName() : "";
+        return executeMentorSearch(searchDTO, deptName);
+    }
+
 }
