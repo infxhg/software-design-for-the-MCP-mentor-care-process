@@ -355,10 +355,10 @@ async function searchMentor() {
   }
 }
 
-function showMembers(groupId: string) {
+function showMembers(groupId: string | undefined) {
   actionMsg.value = ''
 
-  const gid = String(groupId).trim()
+  const gid = String(groupId ?? '').trim()
 
   if (!gid) {
     actionMsg.value = 'Warning: Group ID is missing.'

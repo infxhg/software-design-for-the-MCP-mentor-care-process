@@ -173,10 +173,12 @@ onMounted(async () => {
   }
 })
 
-function showMembers(groupId: string) {
+function showMembers(groupId: string | undefined) {
   message.value = ''
 
-  if (!groupId) {
+  const gid = String(groupId ?? '').trim()
+
+  if (!gid) {
     message.value = 'Warning: Group ID is missing.'
     return
   }
@@ -185,7 +187,7 @@ function showMembers(groupId: string) {
    * 修改点：
    * 传 groupId，不传 mentorId。
    */
-  router.push(`/group-members/${encodeURIComponent(groupId)}`)
+  router.push(`/group-members/${encodeURIComponent(gid)}`)
 }
 
 function searchAgain() {

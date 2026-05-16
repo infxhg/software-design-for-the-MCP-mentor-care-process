@@ -158,7 +158,7 @@ function normalizeDateForInput(d: any): string {
   if (!d) return ''
   const s = String(d)
   const m = s.match(/^(\d{4}-\d{2}-\d{2})/)
-  return m ? m[1] : ''
+  return m?.[1] ?? ''
 }
 
 function normalizeTimeForInput(t: any): string {
@@ -167,7 +167,7 @@ function normalizeTimeForInput(t: any): string {
   // 后端可能返回 "14:30:00" 或 "14:30"，<input type="time"> 都能吃，
   // 但为了 UI 一致性统一截断到 HH:MM。
   const m = s.match(/^(\d{2}:\d{2})/)
-  return m ? m[1] : ''
+  return m?.[1] ?? ''
 }
 
 function normalizeRecordForEdit(r: McpRecord): McpRecord {
