@@ -1,11 +1,14 @@
 package com.bnbu.mentoring.Controller;
 
+import com.bnbu.mentoring.Client.UserServiceClient;
 import com.bnbu.mentoring.DTO.Result;
+import com.bnbu.mentoring.DTO.UserSearchRequestDTO;
 import com.bnbu.mentoring.Entity.McpRecord;
 import com.bnbu.mentoring.Service.McpRecordService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
+import java.util.stream.Collectors;
 import com.bnbu.mentoring.Service.McpStudentExtService;
 
 @RestController
@@ -41,6 +44,24 @@ public class McpRecordController {
     }
 
     /**
+     * 获取当前登录 Mentor 负责的所有访谈记录
+     * GET /api/mentoring/records/mine
+     * 前端 Mentor 登录后直接调此接口，无需预先知道 groupId
+     */
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('ROLE_MENTOR')")
+    @GetMapping("/mine")
+    public Result getMyRecords(@RequestHeader(value = "X-User-Id", required = false) String currentMentorId) {
+        if (currentMentorId == null || currentMentorId.isEmpty()) {
+            return Result.error("未获取到当前登录的导师ID，请通过网关访问");
+        }
+        List<McpRecord> records = mcpRecordService.lambdaQuery()
+                .eq(McpRecord::getMentorId, currentMentorId)
+                .orderByDesc(McpRecord::getInterviewDate)
+                .list();
+        return Result.success("获取成功", records);
+    }
+
+    /**
      * 根据学生ID获取该学生的历史访谈记录 (供 Faculty Consultant / Coordinator 使用)
      * GET /api/mentoring/records/student/{studentId}
      */
@@ -65,6 +86,9 @@ public class McpRecordController {
     }
     @Autowired
     private McpStudentExtService mcpStudentExtService;
+
+    @Autowired
+    private UserServiceClient userServiceClient;
 
     /**
      * 按照小组范围查看组内学生及其访谈记录的功能
@@ -104,4 +128,66 @@ public class McpRecordController {
 
         return Result.success("获取小组学生及其访谈记录成功", resultList);
     }
+
+    /**
+     * Mentor 按学生ID精确搜索 —— 严格限制只能搜索自己所在组的学生
+     * GET /api/mentoring/records/students/search?studentId=xxxxxxxxx
+     *
+     * 流程：
+     *  1. 从 mcp_record 中查出当前 Mentor 负责的所有 groupId
+     *  2. 验证目标 studentId 是否存在于这些组的 mcp_student_ext 记录中
+     *  3. 校验通过后，通过 Feign 调用 User-Service 按 ID 精确获取用户详情
+     */
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('ROLE_MENTOR')")
+    @GetMapping("/students/search")
+    public Result searchStudentByIdInMyGroups(
+            @RequestHeader(value = "X-User-Id", required = false) String currentMentorId,
+            @RequestParam(value = "studentId") String studentId) {
+
+        if (currentMentorId == null || currentMentorId.isEmpty()) {
+            return Result.error("未获取到当前登录的导师ID，请通过网关访问");
+        }
+        if (studentId == null || studentId.trim().isEmpty()) {
+            return Result.error("studentId 不能为空");
+        }
+
+        // Step 1: 找出该 Mentor 负责的所有 groupId
+        List<McpRecord> mentorRecords = mcpRecordService.lambdaQuery()
+                .eq(McpRecord::getMentorId, currentMentorId)
+                .select(McpRecord::getGroupId)
+                .list();
+
+        List<String> groupIds = mentorRecords.stream()
+                .map(McpRecord::getGroupId)
+                .filter(gid -> gid != null && !gid.isEmpty())
+                .distinct()
+                .collect(Collectors.toList());
+
+        if (groupIds.isEmpty()) {
+            return Result.error("该导师尚未负责任何小组，无权查询学生信息");
+        }
+
+        // Step 2: 验证目标学生是否属于该 Mentor 的组
+        boolean isInGroup = mcpStudentExtService.lambdaQuery()
+                .eq(com.bnbu.mentoring.Entity.McpStudentExt::getStudentId, studentId)
+                .in(com.bnbu.mentoring.Entity.McpStudentExt::getGroupId, groupIds)
+                .exists();
+
+        if (!isInGroup) {
+            return Result.error("权限不足：该学生不属于您负责的任何小组");
+        }
+
+        // Step 3: 通过 Feign 调用 User-Service 按 ID 精确获取用户详情
+        UserSearchRequestDTO searchDTO = new UserSearchRequestDTO();
+        searchDTO.setRoleCode("STUDENT");
+        searchDTO.setUserIds(java.util.Collections.singletonList(studentId));
+
+        try {
+            Result userResult = userServiceClient.searchUsersByConditions(searchDTO);
+            return Result.success("查询成功", userResult.getData());
+        } catch (Exception e) {
+            return Result.error("调用用户服务失败：" + e.getMessage());
+        }
+    }
 }
+
