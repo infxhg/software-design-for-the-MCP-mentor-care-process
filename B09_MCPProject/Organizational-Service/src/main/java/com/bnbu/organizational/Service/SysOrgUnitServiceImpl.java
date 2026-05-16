@@ -32,6 +32,7 @@ public class SysOrgUnitServiceImpl extends ServiceImpl<SysOrgUnitMapper, SysOrgU
     private final SysMentorInfoMapper sysMentorInfoMapper; // 新增：用于查询本地 office 信息
     private final UserFeignClient userFeignClient;
     private final ObjectMapper objectMapper; // 💡 新增：Spring Boot 自动注入的 JSON 转换神器
+    private final SysOrgUnitMapper sysOrgUnitMapper;
 
     @Override
     public List<MentorVO> searchMentorsByOrgId(String orgUnitId, String keyword) {
@@ -188,24 +189,43 @@ public class SysOrgUnitServiceImpl extends ServiceImpl<SysOrgUnitMapper, SysOrgU
         return userFeignClient.getStudentById(studentId);
     }
 
+    /**
+     * 递归收集一个组织节点及其所有子孙节点的 ID
+     * 例如：org_dcs → [org_dcs, group_a1, group_b1]
+     */
+    private List<String> collectAllDescendantOrgIds(List<String> rootOrgIds) {
+        List<String> allOrgIds = new ArrayList<>(rootOrgIds);
+        java.util.Queue<String> queue = new java.util.LinkedList<>(rootOrgIds);
+        while (!queue.isEmpty()) {
+            String currentId = queue.poll();
+            List<String> childIds = sysOrgUnitMapper.selectChildOrgIds(currentId);
+            if (childIds != null && !childIds.isEmpty()) {
+                allOrgIds.addAll(childIds);
+                queue.addAll(childIds);
+            }
+        }
+        return allOrgIds.stream().distinct().collect(Collectors.toList());
+    }
+
     @Override
     public Object searchMemberInMyDept(String coordinatorId, String targetUserId) {
-        // 1. 查询当前 Coordinator 所属的所有组织 ID
-        List<String> coordinatorOrgIds = sysUserOrgMapper.selectOrgIdsByUserId(coordinatorId);
-        if (coordinatorOrgIds == null || coordinatorOrgIds.isEmpty()) {
-            return null; // Coordinator 未绑定任何部门
+        // 1. 查询 Coordinator 直接所属的组织 ID，再递归展开所有子组织
+        List<String> coordinatorDirectOrgIds = sysUserOrgMapper.selectOrgIdsByUserId(coordinatorId);
+        if (coordinatorDirectOrgIds == null || coordinatorDirectOrgIds.isEmpty()) {
+            return null;
         }
+        List<String> allOrgIdsInScope = collectAllDescendantOrgIds(coordinatorDirectOrgIds);
 
         // 2. 查询目标用户所属的所有组织 ID
         List<String> targetOrgIds = sysUserOrgMapper.selectOrgIdsByUserId(targetUserId);
         if (targetOrgIds == null || targetOrgIds.isEmpty()) {
-            return null; // 目标用户不在任何组织中
+            return null;
         }
 
-        // 3. 判断两者是否有共同的组织单元（部门范围校验）
-        boolean inSameDept = targetOrgIds.stream().anyMatch(coordinatorOrgIds::contains);
-        if (!inSameDept) {
-            return null; // 目标用户不在 Coordinator 的部门范围内
+        // 3. 判断目标用户是否在 Coordinator 的管辖范围内（含子组织）
+        boolean inScope = targetOrgIds.stream().anyMatch(allOrgIdsInScope::contains);
+        if (!inScope) {
+            return null;
         }
 
         // 4. 通过 Feign 从 User-Service 获取目标用户信息并返回
@@ -218,14 +238,15 @@ public class SysOrgUnitServiceImpl extends ServiceImpl<SysOrgUnitMapper, SysOrgU
 
     @Override
     public List<MentorVO> searchMentorsInMyDept(String coordinatorId, String keyword) {
-        // 1. 查询 Coordinator 所属的所有组织 ID
-        List<String> coordinatorOrgIds = sysUserOrgMapper.selectOrgIdsByUserId(coordinatorId);
-        if (CollectionUtils.isEmpty(coordinatorOrgIds)) {
+        // 1. 查询 Coordinator 直接所属的组织 ID，再递归展开所有子组织
+        List<String> coordinatorDirectOrgIds = sysUserOrgMapper.selectOrgIdsByUserId(coordinatorId);
+        if (CollectionUtils.isEmpty(coordinatorDirectOrgIds)) {
             return new ArrayList<>();
         }
+        List<String> allOrgIdsInScope = collectAllDescendantOrgIds(coordinatorDirectOrgIds);
 
-        // 2. 对每个组织 ID，获取其下的所有用户 ID，合并去重
-        List<String> allUserIdsInDept = coordinatorOrgIds.stream()
+        // 2. 对每个组织 ID（含子组织），获取其下的所有用户 ID，合并去重
+        List<String> allUserIdsInDept = allOrgIdsInScope.stream()
                 .flatMap(orgId -> sysUserOrgMapper.selectUserIdsByOrgId(orgId).stream())
                 .distinct()
                 .collect(Collectors.toList());
@@ -234,14 +255,14 @@ public class SysOrgUnitServiceImpl extends ServiceImpl<SysOrgUnitMapper, SysOrgU
             return new ArrayList<>();
         }
 
-        // 3. 构造搜索条件：角色=MENTOR，用户范围=部门内所有用户，keyword 匹配姓名或邮箱
+        // 3. 构造搜索条件：角色=MENTOR，用户范围=部门及子组织内所有用户
         UserSearchDTO searchDTO = new UserSearchDTO();
         searchDTO.setRoleCode("MENTOR");
         searchDTO.setUserIds(allUserIdsInDept);
         searchDTO.setKeyword(keyword);
 
         // 4. 复用已有的 executeMentorSearch 查询逻辑
-        SysOrgUnit firstOrg = this.getById(coordinatorOrgIds.get(0));
+        SysOrgUnit firstOrg = this.getById(coordinatorDirectOrgIds.get(0));
         String deptName = firstOrg != null ? firstOrg.getName() : "";
         return executeMentorSearch(searchDTO, deptName);
     }

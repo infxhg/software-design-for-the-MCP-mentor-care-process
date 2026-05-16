@@ -44,6 +44,30 @@ public class McpRecordController {
     }
 
     /**
+     * Mentor 删除自己的访谈记录
+     * DELETE /api/mentoring/records/{recordId}
+     */
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('ROLE_MENTOR')")
+    @DeleteMapping("/{recordId}")
+    public Result deleteRecord(
+            @PathVariable String recordId,
+            @RequestHeader(value = "X-User-Id", required = false) String currentMentorId) {
+        if (currentMentorId == null || currentMentorId.isEmpty()) {
+            return Result.error("未获取到当前登录的导师ID，请通过网关访问");
+        }
+        McpRecord existRecord = mcpRecordService.getById(recordId);
+        if (existRecord == null) {
+            return Result.error("该访谈记录不存在");
+        }
+        // 防越权：只能删除自己的记录
+        if (!existRecord.getMentorId().equals(currentMentorId)) {
+            return Result.error("无权删除其他导师的访谈记录");
+        }
+        boolean success = mcpRecordService.removeById(recordId);
+        return success ? Result.success("删除成功", null) : Result.error("删除失败");
+    }
+
+    /**
      * 获取当前登录 Mentor 负责的所有访谈记录
      * GET /api/mentoring/records/mine
      * 前端 Mentor 登录后直接调此接口，无需预先知道 groupId

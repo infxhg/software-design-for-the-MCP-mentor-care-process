@@ -3,10 +3,11 @@ package com.bnbu.mentoring.Entity;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.Data;
 
+import java.time.LocalDate;
 import java.util.Date;
-import java.time.LocalTime;
 
 @Data
 @TableName("mcp_record")
@@ -16,10 +17,18 @@ public class McpRecord {
     private String studentId;
     private String mentorId;
     private String groupId;
-    private Date interviewDate;
-    private LocalTime interviewTime;
+
+    // LocalDate 是无时区的纯日期类型，序列化直接输出 "yyyy-MM-dd"，彻底消除 UTC 偏移问题
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private LocalDate interviewDate;
+
+    // 前端格式为 HH:mm（如 "10:00"），用 String 避免 LocalTime 反序列化依赖问题
+    private String interviewTime;
+
     private String problemStatement;
     private String interviewSummary;
     private String followupAction;
+
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "Asia/Shanghai")
     private Date createTime;
 }
