@@ -2,15 +2,18 @@
  * Mentoring API - Interview records
  *
  * Backend endpoints:
- *   GET  /api/mentoring/records/student/{studentId}    (Faculty Consultant / Coordinator)
- *   GET  /api/mentoring/records/group/{groupId}        (Mentor / Coordinator)
- *   GET  /api/mentoring/records/{recordId}             (Mentor / Coordinator / Consultant)
- *   GET  /api/mentoring/records/mine                   (Mentor - all own records)
- *   GET  /api/mentoring/records/students/search        (Mentor - lookup a student in own MCP groups)
- *   POST /api/mentoring/records                        (Mentor - save/update)
+ *   GET    /api/mentoring/records/student/{studentId}  (Faculty Consultant / Coordinator)
+ *   GET    /api/mentoring/records/group/{groupId}      (Mentor / Coordinator)
+ *   GET    /api/mentoring/records/{recordId}           (Mentor / Coordinator / Consultant)
+ *   GET    /api/mentoring/records/mine                 (Mentor - all own records)
+ *   GET    /api/mentoring/records/students/search      (Mentor - lookup a student in own MCP groups)
+ *   POST   /api/mentoring/records                      (Mentor - save/update,
+ *                                                       create 和 update 共用同一个 endpoint，
+ *                                                       靠 body 中 recordId 是否存在区分)
+ *   DELETE /api/mentoring/records/{recordId}           (Mentor - delete one record)  ← v9 新增
  */
 
-import { get, post } from './request'
+import { get, post, del } from './request'
 import { searchStudentById, getMyDeptMember } from './org'
 import type { StudentFromApi } from './org'
 
@@ -37,7 +40,13 @@ export interface StudentGroupRecord {
   interviewRecords: McpRecord[]
 }
 
-/** Payload for POST create (all fields) */
+/**
+ * Payload for POST create.
+ *
+ *   POST /api/mentoring/records
+ *
+ * 不带 recordId —— 后端识别为新建。
+ */
 export interface CreateRecordPayload {
   studentId: string
   groupId: string
@@ -48,11 +57,22 @@ export interface CreateRecordPayload {
   followupAction: string
 }
 
-/** Payload for POST update (only 3 fields) */
-export interface UpdateRecordPayload {
+/**
+ * Payload for POST update.
+ *
+ * 修改点 (v8)：
+ * 以前 update 只发 { recordId, interviewSummary, followupAction } 3 个字段，
+ * 导致 mentor 改 date / time / problemStatement 之后保存时被悄悄丢弃。
+ *
+ * 现在 update 走和 create 一样的完整 body，多带一个必填的 recordId 即可。
+ * 后端按 recordId 是否存在区分：
+ *   - 没有 recordId → create
+ *   - 有 recordId   → update（所有字段都允许改）
+ *
+ * 因此 UpdateRecordPayload = CreateRecordPayload + 必填 recordId。
+ */
+export interface UpdateRecordPayload extends CreateRecordPayload {
   recordId: string
-  interviewSummary: string
-  followupAction: string
 }
 
 // ---------- API calls ----------
@@ -113,39 +133,77 @@ export async function getRecordDetail(recordId: string): Promise<McpRecord> {
   return res.data
 }
 
-/** Create a new interview record — POST /api/mentoring/records */
+/** Create a new interview record — POST /api/mentoring/records (无 recordId) */
 export async function createRecord(payload: CreateRecordPayload): Promise<void> {
   const res = await post('/mentoring/records', payload)
   if (res.code !== 200) throw new Error(res.message || 'Failed to create record')
 }
 
-/** Update an existing interview record — POST /api/mentoring/records */
+/**
+ * Update an existing interview record — POST /api/mentoring/records (含 recordId)
+ *
+ * 修改点 (v8)：
+ * 和 createRecord 共用同一个 endpoint，body 也是完整字段，
+ * 只是多带 recordId。后端按 recordId 区分这次是 update 而不是 create。
+ *
+ * 这样 mentor 在 EditRecordView 上改任何字段
+ * (date / time / problemStatement / interviewSummary / followupAction)
+ * 都会被一次性提交并生效，不再被前端悄悄丢字段。
+ */
 export async function updateRecord(payload: UpdateRecordPayload): Promise<void> {
   const res = await post('/mentoring/records', payload)
   if (res.code !== 200) throw new Error(res.message || 'Failed to update record')
 }
 
 /**
+ * 修改点 (v9 新增)：
+ * 删除一条已持久化的访谈记录。
+ *
+ * Backend (delete.docx)：
+ *   DELETE /api/mentoring/records/{recordId}
+ *
+ *   - 角色限制：mentor（只能删除自己组内学生的记录，后端校验）
+ *   - 成功 response: { code: 200, message: "...", data: null }
+ *
+ * 调用约定：
+ *   仅当 recordId 已存在于后端数据库时调用此接口。
+ *   尚未保存的新增条目（recordId 为 undefined）不要调它，
+ *   直接从前端数组里 splice 掉就行。
+ */
+export async function deleteRecord(recordId: string): Promise<void> {
+  const rid = String(recordId).trim()
+  if (!rid) {
+    throw new Error('recordId is required')
+  }
+
+  const res = await del(`/mentoring/records/${encodeURIComponent(rid)}`)
+  if (res.code !== 200) {
+    throw new Error(res.message || 'Failed to delete record')
+  }
+}
+
+/**
  * @deprecated Use createRecord() / updateRecord() instead.
  * Kept for backward compatibility.
+ *
+ * 修改点 (v8)：
+ * 同步改成发送完整 body —— 跟新版 updateRecord 一致。
  */
 export async function saveRecord(record: McpRecord): Promise<void> {
+  const base = {
+    studentId: record.studentId,
+    groupId: record.groupId || '',
+    interviewDate: record.interviewDate,
+    interviewTime: record.interviewTime,
+    problemStatement: record.problemStatement,
+    interviewSummary: record.interviewSummary,
+    followupAction: record.followupAction,
+  }
+
   if (record.recordId) {
-    await updateRecord({
-      recordId: record.recordId,
-      interviewSummary: record.interviewSummary,
-      followupAction: record.followupAction,
-    })
+    await updateRecord({ recordId: record.recordId, ...base })
   } else {
-    await createRecord({
-      studentId: record.studentId,
-      groupId: record.groupId || '',
-      interviewDate: record.interviewDate,
-      interviewTime: record.interviewTime,
-      problemStatement: record.problemStatement,
-      interviewSummary: record.interviewSummary,
-      followupAction: record.followupAction,
-    })
+    await createRecord(base)
   }
 }
 

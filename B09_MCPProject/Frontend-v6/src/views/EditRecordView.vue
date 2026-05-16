@@ -79,7 +79,17 @@
             <small>{{ (record.followupAction || '').length }}/200</small>
           </div>
 
-          <button class="danger" @click="deleteRecord(index)">Delete</button>
+          <!--
+            修改点 (v9)：
+            Delete 按钮在请求过程中禁用，避免重复点击发起多次 DELETE 请求。
+          -->
+          <button
+              class="danger"
+              :disabled="deletingIndex === index"
+              @click="deleteRecord(index)"
+          >
+            {{ deletingIndex === index ? 'Deleting...' : 'Delete' }}
+          </button>
         </div>
 
         <div class="actions">
@@ -104,7 +114,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { lookupStudent, fetchRecordsForStudent, createRecord, updateRecord } from '../api/mentoring'
+import {
+  lookupStudent,
+  fetchRecordsForStudent,
+  createRecord,
+  updateRecord,
+  deleteRecord as deleteRecordApi,
+} from '../api/mentoring'
 import { getRole } from '../types'
 import type { McpRecord } from '../api/mentoring'
 import type { StudentFromApi } from '../api/org'
@@ -128,6 +144,13 @@ const isMsgError = ref(false)
 
 const recordMessage = ref('')
 const isRecordError = ref(false)
+
+/**
+ * 修改点 (v9)：
+ * 记录当前正在删除的条目下标，用于禁用对应的 Delete 按钮。
+ * -1 表示当前没有在删除任何条目。
+ */
+const deletingIndex = ref<number>(-1)
 
 const canEdit = computed(() => getRole() === 'mentor')
 
@@ -252,8 +275,79 @@ function addRecord() {
   })
 }
 
-function deleteRecord(index: number) {
-  records.value.splice(index, 1)
+/**
+ * 修改点 (v9)：
+ * 接入 DELETE /api/mentoring/records/{recordId} 接口。
+ *
+ * 两种情况分别处理：
+ *   - 未保存的新增条目（recordId === undefined）
+ *     → 不调接口，直接 splice，不需要二次确认（用户都没存过）。
+ *   - 已持久化条目（有 recordId）
+ *     → 二次确认 → 调 DELETE 接口 → 成功后从 records 和 originalRecords 都移除。
+ *
+ * originalRecords 也必须同步移除，否则点 Cancel 会把刚删的条目"复活"回 UI，
+ * 但数据库里其实已经没有了。
+ */
+async function deleteRecord(index: number) {
+  message.value = ''
+  isMsgError.value = false
+
+  const r = records.value[index]
+  if (!r) return
+
+  // 未持久化条目：本地移除即可
+  if (!r.recordId) {
+    records.value.splice(index, 1)
+    return
+  }
+
+  // 已持久化条目：先确认
+  const ok = window.confirm(
+      `Delete interview record #${index + 1}? This cannot be undone.`,
+  )
+  if (!ok) return
+
+  const ridToDelete = r.recordId
+  deletingIndex.value = index
+
+  try {
+    await deleteRecordApi(ridToDelete)
+
+    // 成功 → 从两个数组里都移除
+    // 用 recordId 反查 index，避免在 await 过程中数组被其它操作修改导致下标错位
+    const liveIdx = records.value.findIndex((x) => x.recordId === ridToDelete)
+    if (liveIdx >= 0) {
+      records.value.splice(liveIdx, 1)
+    }
+
+    const origIdx = originalRecords.value.findIndex((x) => x.recordId === ridToDelete)
+    if (origIdx >= 0) {
+      originalRecords.value.splice(origIdx, 1)
+    }
+
+    message.value = 'Interview record deleted.'
+    isMsgError.value = false
+  } catch (err: any) {
+    if (err.message?.includes('401')) {
+      message.value = 'Session expired. Please login again.'
+    } else if (err.message?.includes('403')) {
+      message.value = 'Authorization warning: You are not allowed to delete this record.'
+    } else if (err.message?.includes('404')) {
+      // 后端已经没有这条 → 视为删除成功，把本地也清掉
+      const liveIdx = records.value.findIndex((x) => x.recordId === ridToDelete)
+      if (liveIdx >= 0) records.value.splice(liveIdx, 1)
+      const origIdx = originalRecords.value.findIndex((x) => x.recordId === ridToDelete)
+      if (origIdx >= 0) originalRecords.value.splice(origIdx, 1)
+
+      message.value = 'Interview record deleted.'
+      isMsgError.value = false
+    } else {
+      message.value = 'Delete failed: ' + (err.message || 'Unknown error')
+      isMsgError.value = true
+    }
+  } finally {
+    deletingIndex.value = -1
+  }
 }
 
 function validateRecords(): boolean {
@@ -305,30 +399,31 @@ async function saveRecords() {
 
   try {
     for (const r of records.value) {
+      /**
+       * 修改点 (v8)：
+       * create 和 update 共用同一个 endpoint POST /api/mentoring/records，
+       * body 结构完全一致 —— 只是 update 多带一个 recordId。
+       *
+       * 之前 update 分支只发 { recordId, interviewSummary, followupAction } 3 字段，
+       * mentor 在表单里改 date / time / problemStatement 后保存会被前端丢掉。
+       * 现在两个分支共享同一个 base payload，所有字段都能改并被后端接收。
+       */
+      const base = {
+        studentId: studentId,
+        groupId: r.groupId || '',
+        interviewDate: r.interviewDate,
+        interviewTime: r.interviewTime,
+        problemStatement: r.problemStatement,
+        interviewSummary: r.interviewSummary,
+        followupAction: r.followupAction,
+      }
+
       if (r.recordId) {
-        /**
-         * FIX: Existing record → updateRecord() sends only
-         * { recordId, interviewSummary, followupAction }
-         */
-        await updateRecord({
-          recordId: r.recordId,
-          interviewSummary: r.interviewSummary,
-          followupAction: r.followupAction,
-        })
+        // 修改点 (v8)：update 也发完整 body
+        await updateRecord({ recordId: r.recordId, ...base })
       } else {
-        /**
-         * FIX: New record → createRecord() sends full body.
-         * Use the 9-digit studentId from URL.
-         */
-        await createRecord({
-          studentId: studentId,
-          groupId: r.groupId || '',
-          interviewDate: r.interviewDate,
-          interviewTime: r.interviewTime,
-          problemStatement: r.problemStatement,
-          interviewSummary: r.interviewSummary,
-          followupAction: r.followupAction,
-        })
+        // 新建：完整 body，无 recordId
+        await createRecord(base)
       }
     }
 
@@ -426,6 +521,11 @@ small {
 button {
   margin-top: 14px;
   margin-right: 10px;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .actions {
