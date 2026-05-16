@@ -11,7 +11,7 @@
  */
 
 import { get, post } from './request'
-import { searchStudentById } from './org'
+import { searchStudentById, getMyDeptMember } from './org'
 import type { StudentFromApi } from './org'
 
 // ---------- Types ----------
@@ -226,16 +226,32 @@ export async function searchStudentInMyGroups(studentId: string): Promise<Studen
 /**
  * Role-aware student lookup. UI 调这个，不用关心是哪种角色。
  *
- *   - mentor                   → GET /mentoring/records/students/search?studentId=...
- *                                (后端只允许查 mentor 自己组内的学生)
- *   - coordinator / consultant → GET /org/student/{studentId} (走 org.ts 的 searchStudentById)
+ *   - mentor       → GET /mentoring/records/students/search?studentId=...
+ *                    (后端只允许查 mentor 自己组内的学生)
+ *   - coordinator  → GET /org/my-dept/member/{userId}
+ *                    (修改点 v7：后端只允许查 coordinator 所在系下的成员)
+ *   - consultant   → GET /org/student/{studentId} (全校查询，原行为)
  *
- * 这是修复 "B 组 mentor 通过 id 能搜到 A 组学生" 的入口。
+ * 这是修复 "coordinator 通过 id 能搜到外系学生" / "B 组 mentor 通过 id 能搜到 A 组学生"
+ * 的入口。每种角色严格走它自己有权限的接口。
  */
 export async function lookupStudent(studentId: string): Promise<StudentFromApi | null> {
   const role = (localStorage.getItem('role') || '').trim()
+
   if (role === 'mentor') {
     return await searchStudentInMyGroups(studentId)
   }
+
+  /**
+   * 修改点 (v7)：
+   * Coordinator 走 /api/org/my-dept/member/{userId}，
+   * 由后端从 token 推断其所在系并做严格校验，
+   * 跨系学生一律返回"查不到"。
+   */
+  if (role === 'coordinator') {
+    return await getMyDeptMember(studentId)
+  }
+
+  // consultant / 其它有全局权限的角色仍走旧的全校查询
   return await searchStudentById(studentId)
 }

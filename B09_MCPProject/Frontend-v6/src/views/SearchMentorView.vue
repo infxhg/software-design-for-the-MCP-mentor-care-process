@@ -12,23 +12,11 @@
 
     <div class="form">
       <!--
-        修改点 (v6 task 4)：
-        Coordinator 仍然需要先输入自己所在系的 org unit ID
-        (走 GET /api/org/mentors/{orgUnitId}?keyword=xxx 接口)，
-        但搜索条件与 Faculty 一致：只剩 Name / Email。
+        修改点 (v7)：
+        Coordinator 不再需要手动输入 Department Org Unit ID。
+        后端通过 JWT 自动识别 coordinator 所在系，
+        前端只保留 "Search By" 下拉 + keyword 输入框。
       -->
-      <div v-if="role === 'coordinator'" class="form-item">
-        <label>Department Org Unit ID</label>
-        <input
-            v-model="orgUnitId"
-            type="text"
-            placeholder="Enter department org unit ID, e.g. org_dcs"
-        />
-
-        <p class="hint">
-          For MCP Coordinator: search is scoped to this department only.
-        </p>
-      </div>
 
       <!--
         修改点 (v6 task 3 & 4)：
@@ -154,7 +142,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { getRole } from '../types'
-import { getMentorsByOrg, searchAllMentors } from '../api/org'
+import { searchAllMentors, searchMyDeptMentors } from '../api/org'
 import type { MentorFromApi } from '../api/org'
 
 const router = useRouter()
@@ -168,7 +156,11 @@ const role = getRole()
 type SearchField = 'name' | 'email'
 const searchField = ref<SearchField>('name')
 
-const orgUnitId = ref('')
+/**
+ * 修改点 (v7)：
+ * 删除 orgUnitId state —— coordinator 不再需要前端传 department id，
+ * 后端从 JWT 推断。
+ */
 const keyword = ref('')
 const message = ref('')
 const isError = ref(false)
@@ -229,22 +221,6 @@ function validateKeyword(input: string): string {
     }
   }
   // name 模式不再加额外限制
-
-  return ''
-}
-
-/**
- * Coordinator 使用 orgUnitId 时的校验。
- * 允许 org_dcs、2024-2025-Y2 之类的格式。
- */
-function validateOrgUnitId(input: string): string {
-  if (!input) {
-    return 'Warning: Please enter your department org unit ID first.'
-  }
-
-  if (!/^[A-Za-z0-9_-]{2,50}$/.test(input)) {
-    return 'Warning: Invalid org unit ID format.'
-  }
 
   return ''
 }
@@ -311,22 +287,13 @@ async function searchMentor() {
       list = await searchAllMentors(kw)
     } else if (role === 'coordinator') {
       /**
-       * 修改点 (v6 task 4)：
-       * Coordinator 走 GET /api/org/mentors/{orgUnitId}?keyword=xxx
-       * (按系搜导师接口)。orgUnitId 是 Coordinator 所在系的 ID，
-       * 由用户在表单上明确填写。
-       * 同样不再支持 group ID 搜索。
+       * 修改点 (v7)：
+       * Coordinator 改走 GET /api/org/my-dept/mentors?keyword=xxx。
+       * 后端从 JWT token 中拿到 coordinator 的所属系，
+       * 不再要求前端传 orgUnitId，结果天然限制在本系。
+       * 同样不支持 group ID 搜索。
        */
-      const orgId = orgUnitId.value.trim()
-      const orgError = validateOrgUnitId(orgId)
-
-      if (orgError) {
-        message.value = orgError
-        isError.value = true
-        return
-      }
-
-      list = await getMentorsByOrg(orgId, kw)
+      list = await searchMyDeptMentors(kw)
     } else {
       message.value = 'Authorization warning: You do not have permission to search mentor information.'
       isError.value = true
@@ -371,7 +338,7 @@ function showMembers(groupId: string | undefined) {
 function searchAgain() {
   results.value = []
   keyword.value = ''
-  orgUnitId.value = ''
+  // 修改点 (v7)：不再清 orgUnitId（已删除）
   message.value = ''
   isError.value = false
   actionMsg.value = ''
