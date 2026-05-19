@@ -105,7 +105,8 @@ onMounted(async () => {
 })
 
 function endTime(time: string): string {
-  const [h, m] = time.split(':').map(Number)
+  const [h = 0, m = 0] = time.split(':').map(Number)
+  if (Number.isNaN(h) || Number.isNaN(m)) return time
   const total = h * 60 + m + 30
   const hh = Math.floor(total / 60) % 24
   const mm = total % 60
