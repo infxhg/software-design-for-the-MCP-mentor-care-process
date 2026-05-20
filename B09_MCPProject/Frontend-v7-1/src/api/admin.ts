@@ -1,33 +1,21 @@
 /**
- * Administrator API
+ * Administrator API.
  *
- * Handles:
- *   - Faculty consultant management (add / change / delete / list)
- *   - Organization (faculty / department / major) setup
- *   - Supporting staff management
+ * Backend endpoints from OpenAPI:
+ *   GET    /api/org/admin/units
+ *   POST   /api/org/admin/units
+ *   GET    /api/org/admin/units/{id}
+ *   PUT    /api/org/admin/units/{id}
+ *   DELETE /api/org/admin/units/{id}
+ *   POST   /api/org/admin/units/import-excel
  *
- * 备注：
- * 这些后端接口目前文档没明确给出。前端先按 Long Description / Detailed Design
- * 里的语义把请求拼好。后端落地时若 endpoint 路径变化，统一在本文件里改。
- *
- * 所有请求都通过 request.ts 的统一封装走 /api 前缀，
- * 也会自动附 JWT 与 401 跳登录。
- *
- * 兜底：
- * 后端 503 / 网络错误时，会返回本地 mock 数据以让前端流程可用。
- * 真实联调时把 USE_MOCK 改成 false 即可。
+ * 说明：
+ * OpenAPI 当前没有 Faculty Consultant 账号管理、Supporting Staff 账号管理的正式接口。
+ * 本文件保留原前端函数名，账号管理函数会调用约定路径 /api/admin/...；
+ * 如果后端还没做这些路径，页面会收到 404，需要后端补接口或你再改这里的路径。
  */
 
-import { get, post, del } from './request'
-
-// ==================== Mock toggle ====================
-
-/**
- * Set to false once the corresponding backend endpoints are ready.
- *
- * 修改点：mock 默认开启，避免后端没接上时前端跑不通。
- */
-const USE_MOCK = true
+import { get, post, put, del, upload } from './request'
 
 // ==================== Types ====================
 
@@ -35,7 +23,7 @@ export interface ConsultantInfo {
   consultantId?: string
   name: string
   email: string
-  faculty: string         // FST / FHSS / FSM / DCC ...
+  faculty: string
 }
 
 export interface SupportingStaffInfo {
@@ -52,210 +40,311 @@ export interface OrgEntry {
   major: string
 }
 
-// ==================== Faculty Consultant ====================
+export interface AdminOrgUnit {
+  id: string
+  name: string
+  type: 'FACULTY' | 'DEPARTMENT' | 'MAJOR' | string
+  parentId: string | null
+  path?: string | null
+  sortOrder?: number
+  createTime?: string
+}
 
-/**
- * Mock store kept in memory only — resets on page reload.
- * That mirrors how the real backend would behave from the UI's perspective.
- */
-const mockConsultants: ConsultantInfo[] = [
-  { consultantId: 'C001', name: 'Prof. Amy', email: 'amy@bnbu.edu.cn', faculty: 'FST' },
-  { consultantId: 'C002', name: 'Prof. John', email: 'john@bnbu.edu.cn', faculty: 'DCC' },
-  { consultantId: 'C003', name: 'Prof. Smith', email: 'smith@bnbu.edu.cn', faculty: 'FST' },
-]
+export interface CreateOrgUnitPayload {
+  name: string
+  type: 'FACULTY' | 'DEPARTMENT' | 'MAJOR' | string
+  parentId?: string | null
+  sortOrder?: number
+}
 
-export async function listConsultants(): Promise<ConsultantInfo[]> {
-  if (USE_MOCK) {
-    return JSON.parse(JSON.stringify(mockConsultants))
+export interface UpdateOrgUnitPayload {
+  name?: string
+  sortOrder?: number
+}
+
+// ==================== Helpers ====================
+
+function normalizeOrgUnit(raw: any): AdminOrgUnit {
+  return {
+    id: String(raw?.id ?? ''),
+    name: String(raw?.name ?? ''),
+    type: String(raw?.type ?? raw?.unitType ?? '').toUpperCase(),
+    parentId: raw?.parentId ?? null,
+    path: raw?.path ?? null,
+    sortOrder: raw?.sortOrder,
+    createTime: raw?.createTime,
+  }
+}
+
+function normalizeConsultant(raw: any): ConsultantInfo {
+  return {
+    consultantId: raw?.consultantId ?? raw?.id,
+    name: raw?.name ?? raw?.realName ?? raw?.username ?? '',
+    email: raw?.email ?? '',
+    faculty: raw?.faculty ?? raw?.facultyName ?? '',
+  }
+}
+
+function normalizeStaff(raw: any): SupportingStaffInfo {
+  return {
+    staffId: raw?.staffId ?? raw?.id,
+    name: raw?.name ?? raw?.realName ?? raw?.username ?? '',
+    accountId: raw?.accountId ?? raw?.username ?? raw?.id ?? '',
+    canViewLog: Boolean(raw?.canViewLog ?? true),
+    canReplyFeedback: Boolean(raw?.canReplyFeedback ?? true),
+  }
+}
+
+async function findOrCreateOrgUnit(
+  units: AdminOrgUnit[],
+  name: string,
+  type: 'FACULTY' | 'DEPARTMENT' | 'MAJOR',
+  parentId: string | null,
+): Promise<AdminOrgUnit> {
+  const existed = units.find(
+    (u) =>
+      u.name === name &&
+      String(u.type).toUpperCase() === type &&
+      (u.parentId || null) === (parentId || null),
+  )
+
+  if (existed) return existed
+
+  const created = await createOrgUnit({
+    name,
+    type,
+    parentId,
+    sortOrder: units.length + 1,
+  })
+
+  units.push(created)
+  return created
+}
+
+function orgEntriesFromUnits(units: AdminOrgUnit[]): OrgEntry[] {
+  const byParent = new Map<string | null, AdminOrgUnit[]>()
+
+  for (const u of units) {
+    const key = u.parentId || null
+    if (!byParent.has(key)) byParent.set(key, [])
+    byParent.get(key)!.push(u)
   }
 
-  const res = await get<ConsultantInfo[]>('/admin/consultants')
-  if (res.code !== 200) throw new Error(res.message || 'Failed to list consultants')
-  return res.data || []
+  const faculties = units.filter((u) => String(u.type).toUpperCase() === 'FACULTY')
+  const rows: OrgEntry[] = []
+
+  for (const faculty of faculties) {
+    const departments = (byParent.get(faculty.id) || []).filter(
+      (u) => String(u.type).toUpperCase() === 'DEPARTMENT',
+    )
+
+    if (departments.length === 0) {
+      rows.push({ faculty: faculty.name, department: '', major: '' })
+      continue
+    }
+
+    for (const dept of departments) {
+      const majors = (byParent.get(dept.id) || []).filter(
+        (u) => String(u.type).toUpperCase() === 'MAJOR',
+      )
+
+      if (majors.length === 0) {
+        rows.push({ faculty: faculty.name, department: dept.name, major: '' })
+        continue
+      }
+
+      for (const major of majors) {
+        rows.push({ faculty: faculty.name, department: dept.name, major: major.name })
+      }
+    }
+  }
+
+  return rows
+}
+
+// ==================== Faculty Consultant Management ====================
+
+export async function listConsultants(): Promise<ConsultantInfo[]> {
+  const res = await get<any[]>('/admin/consultants')
+
+  if (res.code !== 200) {
+    throw new Error(res.message || 'Failed to list consultants')
+  }
+
+  return (res.data || []).map(normalizeConsultant)
 }
 
 export async function getConsultant(consultantId: string): Promise<ConsultantInfo | null> {
-  if (USE_MOCK) {
-    return mockConsultants.find((c) => c.consultantId === consultantId) || null
-  }
+  const res = await get<any>(`/admin/consultants/${encodeURIComponent(consultantId)}`)
 
-  const res = await get<ConsultantInfo>(`/admin/consultants/${encodeURIComponent(consultantId)}`)
-  if (res.code !== 200) return null
-  return res.data || null
+  if (res.code !== 200 || !res.data) return null
+  return normalizeConsultant(res.data)
 }
 
 export async function addConsultant(info: ConsultantInfo): Promise<void> {
-  if (USE_MOCK) {
-    if (mockConsultants.some((c) => c.email === info.email)) {
-      throw new Error('Consultant with this email already exists.')
-    }
+  const res = await post<null>('/admin/consultants', info)
 
-    mockConsultants.push({
-      ...info,
-      consultantId: 'C' + String(Date.now()).slice(-6),
-    })
-    return
+  if (res.code !== 200) {
+    throw new Error(res.message || 'Failed to add consultant')
   }
-
-  const res = await post('/admin/consultants', info)
-  if (res.code !== 200) throw new Error(res.message || 'Failed to add consultant')
 }
 
 export async function updateConsultant(info: ConsultantInfo): Promise<void> {
   if (!info.consultantId) throw new Error('consultantId is required')
 
-  if (USE_MOCK) {
-    const idx = mockConsultants.findIndex((c) => c.consultantId === info.consultantId)
-    if (idx < 0) throw new Error('Consultant not found')
-    mockConsultants[idx] = { ...info }
-    return
-  }
+  const res = await post<null>(
+    `/admin/consultants/${encodeURIComponent(info.consultantId)}`,
+    info,
+  )
 
-  const res = await post(`/admin/consultants/${encodeURIComponent(info.consultantId)}`, info)
-  if (res.code !== 200) throw new Error(res.message || 'Failed to update consultant')
+  if (res.code !== 200) {
+    throw new Error(res.message || 'Failed to update consultant')
+  }
 }
 
 export async function deleteConsultant(consultantId: string): Promise<void> {
-  if (USE_MOCK) {
-    const idx = mockConsultants.findIndex((c) => c.consultantId === consultantId)
-    if (idx < 0) throw new Error('Consultant not found')
-    mockConsultants.splice(idx, 1)
-    return
-  }
+  const res = await del<null>(`/admin/consultants/${encodeURIComponent(consultantId)}`)
 
-  const res = await del(`/admin/consultants/${encodeURIComponent(consultantId)}`)
-  if (res.code !== 200) throw new Error(res.message || 'Failed to delete consultant')
+  if (res.code !== 200) {
+    throw new Error(res.message || 'Failed to delete consultant')
+  }
 }
 
-// ==================== Supporting Staff ====================
-
-const mockSupportingStaff: SupportingStaffInfo[] = [
-  { staffId: 'S001', name: 'Staff A', accountId: '001', canViewLog: true, canReplyFeedback: true },
-  { staffId: 'S002', name: 'Staff B', accountId: '002', canViewLog: true, canReplyFeedback: false },
-  { staffId: 'S003', name: 'Staff C', accountId: '003', canViewLog: false, canReplyFeedback: true },
-]
+// ==================== Supporting Staff Management ====================
 
 export async function listSupportingStaff(): Promise<SupportingStaffInfo[]> {
-  if (USE_MOCK) {
-    return JSON.parse(JSON.stringify(mockSupportingStaff))
+  const res = await get<any[]>('/admin/supporting-staff')
+
+  if (res.code !== 200) {
+    throw new Error(res.message || 'Failed to list staff')
   }
 
-  const res = await get<SupportingStaffInfo[]>('/admin/supporting-staff')
-  if (res.code !== 200) throw new Error(res.message || 'Failed to list staff')
-  return res.data || []
+  return (res.data || []).map(normalizeStaff)
 }
 
 export async function getSupportingStaff(staffId: string): Promise<SupportingStaffInfo | null> {
-  if (USE_MOCK) {
-    return mockSupportingStaff.find((s) => s.staffId === staffId) || null
-  }
+  const res = await get<any>(`/admin/supporting-staff/${encodeURIComponent(staffId)}`)
 
-  const res = await get<SupportingStaffInfo>(`/admin/supporting-staff/${encodeURIComponent(staffId)}`)
-  if (res.code !== 200) return null
-  return res.data || null
+  if (res.code !== 200 || !res.data) return null
+  return normalizeStaff(res.data)
 }
 
 export async function addSupportingStaff(info: SupportingStaffInfo): Promise<void> {
-  if (USE_MOCK) {
-    if (mockSupportingStaff.some((s) => s.accountId === info.accountId)) {
-      throw new Error('Staff with this account ID already exists.')
-    }
-    mockSupportingStaff.push({
-      ...info,
-      staffId: 'S' + String(Date.now()).slice(-6),
-    })
-    return
-  }
+  const res = await post<null>('/admin/supporting-staff', info)
 
-  const res = await post('/admin/supporting-staff', info)
-  if (res.code !== 200) throw new Error(res.message || 'Failed to add staff')
+  if (res.code !== 200) {
+    throw new Error(res.message || 'Failed to add staff')
+  }
 }
 
 export async function updateSupportingStaff(info: SupportingStaffInfo): Promise<void> {
   if (!info.staffId) throw new Error('staffId is required')
 
-  if (USE_MOCK) {
-    const idx = mockSupportingStaff.findIndex((s) => s.staffId === info.staffId)
-    if (idx < 0) throw new Error('Staff not found')
-    mockSupportingStaff[idx] = { ...info }
-    return
-  }
+  const res = await post<null>(
+    `/admin/supporting-staff/${encodeURIComponent(info.staffId)}`,
+    info,
+  )
 
-  const res = await post(`/admin/supporting-staff/${encodeURIComponent(info.staffId)}`, info)
-  if (res.code !== 200) throw new Error(res.message || 'Failed to update staff')
+  if (res.code !== 200) {
+    throw new Error(res.message || 'Failed to update staff')
+  }
 }
 
 export async function deleteSupportingStaff(staffId: string): Promise<void> {
-  if (USE_MOCK) {
-    const idx = mockSupportingStaff.findIndex((s) => s.staffId === staffId)
-    if (idx < 0) throw new Error('Staff not found')
-    mockSupportingStaff.splice(idx, 1)
-    return
-  }
+  const res = await del<null>(`/admin/supporting-staff/${encodeURIComponent(staffId)}`)
 
-  const res = await del(`/admin/supporting-staff/${encodeURIComponent(staffId)}`)
-  if (res.code !== 200) throw new Error(res.message || 'Failed to delete staff')
+  if (res.code !== 200) {
+    throw new Error(res.message || 'Failed to delete staff')
+  }
 }
 
-// ==================== Organization (Faculty / Department / Major) ====================
+// ==================== Organization ====================
 
-const mockOrgTree: OrgEntry[] = [
-  { faculty: 'FST', department: 'DCS', major: 'CST' },
-  { faculty: 'FST', department: 'DCS', major: 'AI' },
-  { faculty: 'FST', department: 'DCS', major: 'DS' },
-  { faculty: 'FST', department: 'DM', major: 'EE' },
-  { faculty: 'FHSS', department: 'DEMP', major: 'Marketing' },
-  { faculty: 'FSM', department: 'DEC', major: 'Economics' },
-  { faculty: 'DCC', department: 'GE', major: 'English' },
-]
+export async function listOrgUnits(): Promise<AdminOrgUnit[]> {
+  const res = await get<any[]>('/org/admin/units')
 
+  if (res.code !== 200) {
+    throw new Error(res.message || 'Failed to load organization units')
+  }
+
+  return (res.data || []).map(normalizeOrgUnit)
+}
+
+export async function getOrgUnit(id: string): Promise<AdminOrgUnit | null> {
+  const res = await get<any>(`/org/admin/units/${encodeURIComponent(id)}`)
+
+  if (res.code !== 200 || !res.data) return null
+  return normalizeOrgUnit(res.data)
+}
+
+export async function createOrgUnit(payload: CreateOrgUnitPayload): Promise<AdminOrgUnit> {
+  const res = await post<any>('/org/admin/units', payload)
+
+  if (res.code !== 200 || !res.data) {
+    throw new Error(res.message || 'Failed to create org unit')
+  }
+
+  return normalizeOrgUnit(res.data)
+}
+
+export async function updateOrgUnit(id: string, payload: UpdateOrgUnitPayload): Promise<void> {
+  const res = await put<null>(`/org/admin/units/${encodeURIComponent(id)}`, payload)
+
+  if (res.code !== 200) {
+    throw new Error(res.message || 'Failed to update org unit')
+  }
+}
+
+export async function deleteOrgUnit(id: string): Promise<void> {
+  const res = await del<null>(`/org/admin/units/${encodeURIComponent(id)}`)
+
+  if (res.code !== 200) {
+    throw new Error(res.message || 'Failed to delete org unit')
+  }
+}
+
+/**
+ * Backward-compatible: old page wants rows of Faculty / Department / Major.
+ */
 export async function getOrgTree(): Promise<OrgEntry[]> {
-  if (USE_MOCK) {
-    return JSON.parse(JSON.stringify(mockOrgTree))
-  }
-
-  const res = await get<OrgEntry[]>('/admin/organization/tree')
-  if (res.code !== 200) throw new Error(res.message || 'Failed to load organization tree')
-  return res.data || []
+  const units = await listOrgUnits()
+  return orgEntriesFromUnits(units)
 }
 
+/**
+ * Backward-compatible: old page adds one Faculty / Department / Major row.
+ * 内部会按层级创建缺失节点。
+ */
 export async function addOrgEntry(entry: OrgEntry): Promise<void> {
-  if (USE_MOCK) {
-    const exists = mockOrgTree.some(
-      (o) =>
-        o.faculty === entry.faculty &&
-        o.department === entry.department &&
-        o.major === entry.major,
-    )
-    if (exists) {
-      throw new Error('This faculty/department/major combination already exists.')
-    }
-    mockOrgTree.push({ ...entry })
-    return
-  }
+  const facultyName = entry.faculty?.trim()
+  const deptName = entry.department?.trim()
+  const majorName = entry.major?.trim()
 
-  const res = await post('/admin/organization/entry', entry)
-  if (res.code !== 200) throw new Error(res.message || 'Failed to add org entry')
+  if (!facultyName) throw new Error('Faculty is required.')
+
+  const units = await listOrgUnits()
+  const faculty = await findOrCreateOrgUnit(units, facultyName, 'FACULTY', null)
+
+  if (!deptName) return
+
+  const dept = await findOrCreateOrgUnit(units, deptName, 'DEPARTMENT', faculty.id)
+
+  if (!majorName) return
+
+  await findOrCreateOrgUnit(units, majorName, 'MAJOR', dept.id)
 }
 
 export async function importOrgFromExcel(file: File): Promise<void> {
-  if (USE_MOCK) {
-    // Pretend to parse — just verify file is not empty
-    if (!file || file.size === 0) {
-      throw new Error('Uploaded file is empty.')
-    }
-    return
+  if (!file || file.size === 0) {
+    throw new Error('Uploaded file is empty.')
   }
 
   const formData = new FormData()
   formData.append('file', file)
 
-  const token = localStorage.getItem('token')
-  const res = await fetch('/api/admin/organization/import', {
-    method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: formData,
-  })
+  const res = await upload<any>('/org/admin/units/import-excel', formData)
 
-  if (!res.ok) throw new Error('Failed to import organization file')
+  if (res.code !== 200) {
+    throw new Error(res.message || 'Failed to import organization file')
+  }
 }

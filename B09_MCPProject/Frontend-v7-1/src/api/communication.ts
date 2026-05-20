@@ -1,17 +1,19 @@
 /**
- * Communication API
+ * Communication API.
  *
- * Handles:
- *   - Normal messages (send/receive between users)
- *   - Interview arrangement (mentor → student → venue confirmation)
- *   - Forward case (mentor → coordinator → consultant)
+ * Backend endpoints from OpenAPI:
+ *   POST /api/message/send
+ *   GET  /api/message/list
+ *   GET  /api/message/unread-count
+ *   GET  /api/message/{messageId}
  *
- * 备注：mock 兜底，方便前端联调。
+ * 注意：
+ * OpenAPI 目前只给了「普通消息」接口。
+ * Interview arrangement / Forward case 暂时没有独立后端接口，所以这里用普通消息接口承载发送动作；
+ * 列表类函数返回空数组，避免页面崩溃，等后端补接口后只需要改本文件。
  */
 
 import { get, post } from './request'
-
-const USE_MOCK = true
 
 // ==================== Types ====================
 
@@ -24,14 +26,12 @@ export interface MessageEntity {
   content: string
   timestamp: string
   isRead: boolean
-  /** 'normal' | 'interview' | 'case' */
   messageType: 'normal' | 'interview' | 'case'
 }
 
 export interface InterviewSlot {
-  date: string         // YYYY-MM-DD
-  time: string         // HH:MM
-  /** 30-min slots — end time computed on the fly when displayed */
+  date: string
+  time: string
 }
 
 export interface InterviewInvitation {
@@ -43,129 +43,117 @@ export interface InterviewInvitation {
   slots: InterviewSlot[]
   chosenSlot?: InterviewSlot
   venue?: string
-  /** 'pending' | 'student_confirmed' | 'venue_confirmed' | 'cancelled' */
   status: 'pending' | 'student_confirmed' | 'venue_confirmed' | 'cancelled'
 }
 
 export interface CaseForwardPayload {
   studentId: string
-  forwardToId: string        // coordinator or consultant id
+  forwardToId: string
   caseDescription: string
 }
 
-// ==================== Mock data ====================
+interface RawMessage {
+  id?: string
+  messageId?: string
+  senderId?: string
+  senderName?: string
+  receiverId?: string
+  receiverName?: string
+  content?: string
+  createTime?: string
+  timestamp?: string
+  isRead?: boolean
+  messageType?: string
+  type?: string
+}
 
-const mockMessages: MessageEntity[] = [
-  {
-    messageId: 'msg001',
-    senderId: '210000001',
-    senderName: 'Sugar',
-    receiverId: 'mentor001',
-    content: 'Hi Mentor, can we have a meeting next week?',
-    timestamp: '2026-03-20 10:30:00',
-    isRead: false,
-    messageType: 'normal',
-  },
-  {
-    messageId: 'msg002',
-    senderId: '123456789',
-    senderName: 'Bnbuer',
-    receiverId: 'mentor001',
-    content: 'I have some questions about my study plan.',
-    timestamp: '2026-03-18 14:20:00',
-    isRead: true,
-    messageType: 'normal',
-  },
-]
+function normalizeMessage(raw: RawMessage): MessageEntity {
+  const messageType = String(raw.messageType ?? raw.type ?? 'normal') as MessageEntity['messageType']
 
-const mockInvitations: InterviewInvitation[] = [
-  {
-    invitationId: 'inv001',
-    fromMentorName: 'Mary Lee',
-    fromMentorId: 'mentor001',
-    studentId: '330026143',
-    studentName: 'Test Student',
-    slots: [
-      { date: '2026-03-27', time: '14:00' },
-      { date: '2026-03-27', time: '15:00' },
-    ],
-    status: 'pending',
-  },
-]
-
-const mockForwardedCases: Array<{
-  caseId: string
-  fromMentorName: string
-  studentId: string
-  studentName: string
-  description: string
-  status: string
-}> = [
-  {
-    caseId: 'case001',
-    fromMentorName: 'Mary Lee',
-    studentId: '210000001',
-    studentName: 'Sugar',
-    description: 'Student has failed 3 finals. Needs faculty attention.',
-    status: 'pending',
-  },
-]
+  return {
+    messageId: String(raw.messageId ?? raw.id ?? ''),
+    senderId: String(raw.senderId ?? ''),
+    senderName: String(raw.senderName ?? raw.senderId ?? ''),
+    receiverId: String(raw.receiverId ?? ''),
+    receiverName: raw.receiverName,
+    content: String(raw.content ?? ''),
+    timestamp: String(raw.timestamp ?? raw.createTime ?? ''),
+    isRead: Boolean(raw.isRead ?? false),
+    messageType: ['normal', 'interview', 'case'].includes(messageType) ? messageType : 'normal',
+  }
+}
 
 // ==================== Normal messages ====================
 
 export async function listMyMessages(): Promise<MessageEntity[]> {
-  if (USE_MOCK) {
-    return JSON.parse(JSON.stringify(mockMessages))
+  const res = await get<RawMessage[]>('/message/list')
+
+  if (res.code !== 200) {
+    throw new Error(res.message || 'Failed to load messages')
   }
 
-  const res = await get<MessageEntity[]>('/messages/mine')
-  if (res.code !== 200) throw new Error(res.message || 'Failed to load messages')
-  return res.data || []
+  return (res.data || []).map(normalizeMessage)
+}
+
+export async function getUnreadMessageCount(): Promise<number> {
+  const res = await get<number>('/message/unread-count')
+
+  if (res.code !== 200) {
+    throw new Error(res.message || 'Failed to get unread count')
+  }
+
+  return Number(res.data || 0)
+}
+
+export async function getMessageDetail(messageId: string): Promise<MessageEntity> {
+  const id = String(messageId || '').trim()
+  if (!id) throw new Error('messageId is required')
+
+  const res = await get<RawMessage>(`/message/${encodeURIComponent(id)}`, {
+    messageId: id,
+  })
+
+  if (res.code !== 200 || !res.data) {
+    throw new Error(res.message || 'Failed to load message')
+  }
+
+  return normalizeMessage(res.data)
 }
 
 export async function sendNormalMessage(
   receiverIds: string[],
   content: string,
 ): Promise<void> {
-  if (!content || !content.trim()) {
-    throw new Error('Message content cannot be empty.')
-  }
-  if (!receiverIds || receiverIds.length === 0) {
+  const text = String(content || '').trim()
+  if (!text) throw new Error('Message content cannot be empty.')
+
+  const recipientIds = (receiverIds || []).map((id) => String(id).trim()).filter(Boolean)
+  if (recipientIds.length === 0) {
     throw new Error('Please select at least one receiver.')
   }
 
-  if (USE_MOCK) {
-    for (const rid of receiverIds) {
-      mockMessages.push({
-        messageId: 'msg' + Date.now(),
-        senderId: localStorage.getItem('username') || 'me',
-        senderName: localStorage.getItem('username') || 'Me',
-        receiverId: rid,
-        content,
-        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-        isRead: false,
-        messageType: 'normal',
-      })
-    }
-    return
-  }
+  const res = await post<null>('/message/send', {
+    recipientIds,
+    content: text,
+  })
 
-  const res = await post('/messages/send', { receiverIds, content, type: 'normal' })
-  if (res.code !== 200) throw new Error(res.message || 'Failed to send message')
+  if (res.code !== 200) {
+    throw new Error(res.message || 'Failed to send message')
+  }
 }
 
 // ==================== Interview arrangements ====================
 
+/**
+ * 后端暂未提供独立预约列表接口。
+ */
 export async function getMyInvitations(): Promise<InterviewInvitation[]> {
-  if (USE_MOCK) {
-    return JSON.parse(JSON.stringify(mockInvitations))
-  }
-
-  const res = await get<InterviewInvitation[]>('/invitations/mine')
-  if (res.code !== 200) throw new Error(res.message || 'Failed to load invitations')
-  return res.data || []
+  return []
 }
 
+/**
+ * 暂时通过普通消息发给学生。
+ */
 export async function sendInterviewInvitation(
   studentId: string,
   slots: InterviewSlot[],
@@ -173,64 +161,40 @@ export async function sendInterviewInvitation(
   if (!studentId) throw new Error('Please select a student.')
   if (!slots || slots.length === 0) throw new Error('Please add at least one time slot.')
 
-  if (USE_MOCK) {
-    mockInvitations.push({
-      invitationId: 'inv' + Date.now(),
-      fromMentorId: 'me',
-      fromMentorName: localStorage.getItem('username') || 'Me',
-      studentId,
-      slots: slots.map((s) => ({ ...s })),
-      status: 'pending',
-    })
-    return
-  }
-
-  const res = await post('/invitations/send', { studentId, slots })
-  if (res.code !== 200) throw new Error(res.message || 'Failed to send invitation')
+  const slotText = slots.map((s) => `${s.date} ${s.time}`).join(', ')
+  await sendNormalMessage(
+    [studentId],
+    `[Interview Arrangement] Please choose one of these time slots: ${slotText}`,
+  )
 }
 
+/**
+ * 后端暂未提供确认 slot 接口；保留函数名避免页面编译报错。
+ */
 export async function studentConfirmSlot(
   invitationId: string,
   slot: InterviewSlot,
 ): Promise<void> {
-  if (USE_MOCK) {
-    const inv = mockInvitations.find((i) => i.invitationId === invitationId)
-    if (!inv) throw new Error('Invitation not found.')
-    inv.chosenSlot = { ...slot }
-    inv.status = 'student_confirmed'
-    return
-  }
-
-  const res = await post(
-    `/invitations/${encodeURIComponent(invitationId)}/confirm-slot`,
-    slot,
-  )
-  if (res.code !== 200) throw new Error(res.message || 'Failed to confirm slot')
+  if (!invitationId) throw new Error('Invitation ID is required.')
+  if (!slot?.date || !slot?.time) throw new Error('Slot is required.')
 }
 
+/**
+ * 后端暂未提供确认 venue 接口；保留函数名避免页面编译报错。
+ */
 export async function mentorConfirmVenue(
   invitationId: string,
   venue: string,
 ): Promise<void> {
+  if (!invitationId) throw new Error('Invitation ID is required.')
   if (!venue || !venue.trim()) throw new Error('Venue cannot be empty.')
-
-  if (USE_MOCK) {
-    const inv = mockInvitations.find((i) => i.invitationId === invitationId)
-    if (!inv) throw new Error('Invitation not found.')
-    inv.venue = venue.trim()
-    inv.status = 'venue_confirmed'
-    return
-  }
-
-  const res = await post(
-    `/invitations/${encodeURIComponent(invitationId)}/confirm-venue`,
-    { venue },
-  )
-  if (res.code !== 200) throw new Error(res.message || 'Failed to confirm venue')
 }
 
 // ==================== Forward cases ====================
 
+/**
+ * 后端暂未提供 coordinator case inbox 接口。
+ */
 export async function listForwardedCasesForCoordinator(): Promise<
   Array<{
     caseId: string
@@ -241,15 +205,12 @@ export async function listForwardedCasesForCoordinator(): Promise<
     status: string
   }>
 > {
-  if (USE_MOCK) {
-    return JSON.parse(JSON.stringify(mockForwardedCases))
-  }
-
-  const res = await get('/cases/coordinator/inbox')
-  if (res.code !== 200) throw new Error(res.message || 'Failed to load cases')
-  return res.data || []
+  return []
 }
 
+/**
+ * 暂时通过普通消息发送 special case 给 coordinator。
+ */
 export async function forwardCaseToCoordinator(
   payload: CaseForwardPayload,
 ): Promise<void> {
@@ -259,22 +220,15 @@ export async function forwardCaseToCoordinator(
     throw new Error('Case description cannot be empty.')
   }
 
-  if (USE_MOCK) {
-    mockForwardedCases.push({
-      caseId: 'case' + Date.now(),
-      fromMentorName: localStorage.getItem('username') || 'Me',
-      studentId: payload.studentId,
-      studentName: 'Student#' + payload.studentId.slice(-3),
-      description: payload.caseDescription.trim(),
-      status: 'pending',
-    })
-    return
-  }
-
-  const res = await post('/cases/forward/coordinator', payload)
-  if (res.code !== 200) throw new Error(res.message || 'Failed to forward case')
+  await sendNormalMessage(
+    [payload.forwardToId],
+    `[Special Case] Student: ${payload.studentId}\n${payload.caseDescription.trim()}`,
+  )
 }
 
+/**
+ * 暂时通过普通消息把 case 转给 consultant。
+ */
 export async function forwardCaseToConsultant(payload: {
   caseId: string
   consultantId: string
@@ -282,13 +236,8 @@ export async function forwardCaseToConsultant(payload: {
   if (!payload.caseId) throw new Error('Case ID is required.')
   if (!payload.consultantId) throw new Error('Please select a faculty consultant.')
 
-  if (USE_MOCK) {
-    const c = mockForwardedCases.find((c) => c.caseId === payload.caseId)
-    if (!c) throw new Error('Case not found.')
-    c.status = 'forwarded_to_consultant'
-    return
-  }
-
-  const res = await post('/cases/forward/consultant', payload)
-  if (res.code !== 200) throw new Error(res.message || 'Failed to forward case')
+  await sendNormalMessage(
+    [payload.consultantId],
+    `[Forwarded Special Case] Case ID: ${payload.caseId}`,
+  )
 }

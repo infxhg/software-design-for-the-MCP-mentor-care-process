@@ -1,21 +1,22 @@
 /**
- * Faculty Consultant API
+ * Faculty Consultant API.
  *
- * Handles:
- *   - Import student name list (Excel)
- *   - Change mentor of a group
- *   - Update mentor group (add/remove students)
- *   - Designate MCP coordinators (manual or Excel)
- *   - List / detail of groups
- *   - List / detail of departments (within own faculty)
- *   - Export interview records by filter
+ * Backend endpoints from OpenAPI:
+ *   POST /api/mentoring/import/mcp-allocation        (OpenAPI method 写成 GET，但描述明确是 multipart POST)
+ *   POST /api/mentoring/import/coordinators          (OpenAPI method 写成 GET，但描述明确是 multipart POST)
+ *   GET  /api/mentoring/groups/search?groupId=xxx
+ *   GET  /api/mentoring/records/group/{groupId}
+ *   GET  /api/org/admin/units
  *
- * 备注：和 admin.ts 同样的 mock 策略 —— 后端接口尚未完全到位时让前端流程可走通。
+ * 注意：
+ * Change mentor / add student / remove student / manual designate coordinator / export Word
+ * 这些在当前 OpenAPI 里还没有正式接口。本文件保留函数名，避免页面编译报错；
+ * 对应函数会给出明确错误，等后端补接口后只改这里。
  */
 
-import { get, post } from './request'
-
-const USE_MOCK = true
+import { get, upload, requestBlob } from './request'
+import { getRecordsByGroup } from './mentoring'
+import type { StudentGroupRecord } from './mentoring'
 
 // ==================== Types ====================
 
@@ -49,222 +50,6 @@ export interface CoordinatorDesignation {
   department: string
 }
 
-// ==================== Mock data ====================
-
-const mockGroups: GroupSummary[] = [
-  { groupId: 'B01', mentorName: 'Jack', mentorId: 'M001', studentCount: 8, major: 'CST', department: 'DCS' },
-  { groupId: 'B02', mentorName: 'Peter', mentorId: 'M002', studentCount: 6, major: 'CST', department: 'DCS' },
-  { groupId: 'B03', mentorName: 'Mark', mentorId: 'M003', studentCount: 7, major: 'AI', department: 'DCS' },
-  { groupId: '2024-2025-Y2', mentorName: 'Mary Lee', mentorId: 'M004', studentCount: 5, major: 'CST', department: 'DCS' },
-]
-
-const mockGroupMembers: Record<string, GroupMember[]> = {
-  B01: [
-    { studentId: '123456789', name: 'Bnbuer', major: 'CST', status: 'Normal' },
-    { studentId: '987654321', name: 'Uicer', major: 'CST', status: 'Normal' },
-  ],
-  B02: [
-    { studentId: '210000001', name: 'Sugar', major: 'CST', status: 'Normal' },
-  ],
-  B03: [],
-  '2024-2025-Y2': [
-    { studentId: '330026143', name: 'Test Student', major: 'CST', status: 'Normal' },
-  ],
-}
-
-const mockDepartments: DepartmentSummary[] = [
-  { departmentId: 'DCS', departmentName: 'Computer Science', faculty: 'FST', coordinatorName: 'Jack', coordinatorEmail: 'jack@bnbu.edu.cn' },
-  { departmentId: 'DS', departmentName: 'Data Science', faculty: 'FST', coordinatorName: 'Peter', coordinatorEmail: 'peter@bnbu.edu.cn' },
-  { departmentId: 'AI', departmentName: 'AI', faculty: 'FST', coordinatorName: 'Mark', coordinatorEmail: 'mark@bnbu.edu.cn' },
-  { departmentId: 'DM', departmentName: 'Mathematics', faculty: 'FST', coordinatorName: null, coordinatorEmail: null },
-]
-
-// ==================== Group APIs ====================
-
-export async function listGroups(): Promise<GroupSummary[]> {
-  if (USE_MOCK) return JSON.parse(JSON.stringify(mockGroups))
-
-  const res = await get<GroupSummary[]>('/consultant/groups')
-  if (res.code !== 200) throw new Error(res.message || 'Failed to list groups')
-  return res.data || []
-}
-
-export async function getGroupDetail(groupId: string): Promise<{
-  group: GroupSummary | null
-  members: GroupMember[]
-}> {
-  if (USE_MOCK) {
-    return {
-      group: mockGroups.find((g) => g.groupId === groupId) || null,
-      members: JSON.parse(JSON.stringify(mockGroupMembers[groupId] || [])),
-    }
-  }
-
-  const res = await get<{ group: GroupSummary; members: GroupMember[] }>(
-    `/consultant/groups/${encodeURIComponent(groupId)}`,
-  )
-  if (res.code !== 200) throw new Error(res.message || 'Failed to load group detail')
-  return res.data
-}
-
-export async function changeGroupMentor(groupId: string, newMentorId: string): Promise<void> {
-  if (USE_MOCK) {
-    const g = mockGroups.find((g) => g.groupId === groupId)
-    if (!g) throw new Error('Group not found')
-    g.mentorId = newMentorId
-    g.mentorName = `Mentor#${newMentorId}`
-    return
-  }
-
-  const res = await post(`/consultant/groups/${encodeURIComponent(groupId)}/mentor`, {
-    mentorId: newMentorId,
-  })
-  if (res.code !== 200) throw new Error(res.message || 'Failed to change mentor')
-}
-
-export async function addStudentToGroup(groupId: string, studentId: string): Promise<void> {
-  if (USE_MOCK) {
-    if (!mockGroupMembers[groupId]) mockGroupMembers[groupId] = []
-    if (mockGroupMembers[groupId].some((m) => m.studentId === studentId)) {
-      throw new Error('Student already in this group.')
-    }
-    mockGroupMembers[groupId].push({
-      studentId,
-      name: 'Student#' + studentId.slice(-3),
-      major: 'CST',
-      status: 'Normal',
-    })
-    return
-  }
-
-  const res = await post(`/consultant/groups/${encodeURIComponent(groupId)}/members`, {
-    studentId,
-  })
-  if (res.code !== 200) throw new Error(res.message || 'Failed to add student')
-}
-
-export async function removeStudentFromGroup(
-  groupId: string,
-  studentId: string,
-): Promise<void> {
-  if (USE_MOCK) {
-    const list = mockGroupMembers[groupId]
-    if (!list) return
-    const idx = list.findIndex((m) => m.studentId === studentId)
-    if (idx >= 0) list.splice(idx, 1)
-    return
-  }
-
-  const res = await post(
-    `/consultant/groups/${encodeURIComponent(groupId)}/members/remove`,
-    { studentId },
-  )
-  if (res.code !== 200) throw new Error(res.message || 'Failed to remove student')
-}
-
-// ==================== Department APIs ====================
-
-export async function listDepartments(): Promise<DepartmentSummary[]> {
-  if (USE_MOCK) return JSON.parse(JSON.stringify(mockDepartments))
-
-  const res = await get<DepartmentSummary[]>('/consultant/departments')
-  if (res.code !== 200) throw new Error(res.message || 'Failed to list departments')
-  return res.data || []
-}
-
-export async function getDepartmentDetail(
-  deptId: string,
-): Promise<DepartmentSummary | null> {
-  if (USE_MOCK) {
-    return mockDepartments.find((d) => d.departmentId === deptId) || null
-  }
-
-  const res = await get<DepartmentSummary>(
-    `/consultant/departments/${encodeURIComponent(deptId)}`,
-  )
-  if (res.code !== 200) return null
-  return res.data || null
-}
-
-export async function designateCoordinator(payload: CoordinatorDesignation): Promise<void> {
-  if (USE_MOCK) {
-    const dept = mockDepartments.find(
-      (d) =>
-        d.departmentId.toLowerCase() === payload.department.toLowerCase() ||
-        d.departmentName.toLowerCase() === payload.department.toLowerCase(),
-    )
-    if (!dept) throw new Error('Department not found.')
-    dept.coordinatorName = payload.coordinatorName
-    dept.coordinatorEmail = payload.email
-    return
-  }
-
-  const res = await post('/consultant/departments/designate-coordinator', payload)
-  if (res.code !== 200) throw new Error(res.message || 'Failed to designate coordinator')
-}
-
-export async function removeCoordinator(deptId: string): Promise<void> {
-  if (USE_MOCK) {
-    const dept = mockDepartments.find((d) => d.departmentId === deptId)
-    if (!dept) throw new Error('Department not found')
-    dept.coordinatorName = null
-    dept.coordinatorEmail = null
-    return
-  }
-
-  const res = await post(
-    `/consultant/departments/${encodeURIComponent(deptId)}/coordinator/remove`,
-    {},
-  )
-  if (res.code !== 200) throw new Error(res.message || 'Failed to remove coordinator')
-}
-
-// ==================== Imports ====================
-
-export async function importStudentNameList(file: File): Promise<{ created: number; updated: number }> {
-  if (USE_MOCK) {
-    if (!file || file.size === 0) throw new Error('Uploaded file is empty.')
-    if (!/\.(xlsx|xls)$/i.test(file.name)) {
-      throw new Error('Invalid file format. Please upload an Excel file (.xlsx / .xls).')
-    }
-    return { created: 12, updated: 4 }
-  }
-
-  const formData = new FormData()
-  formData.append('file', file)
-  const token = localStorage.getItem('token')
-  const res = await fetch('/api/consultant/import/students', {
-    method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: formData,
-  })
-  if (!res.ok) throw new Error('Failed to import student name list')
-  return await res.json()
-}
-
-export async function importCoordinatorList(file: File): Promise<{ imported: number }> {
-  if (USE_MOCK) {
-    if (!file || file.size === 0) throw new Error('Uploaded file is empty.')
-    if (!/\.(xlsx|xls)$/i.test(file.name)) {
-      throw new Error('Invalid file format. Please upload an Excel file (.xlsx / .xls).')
-    }
-    return { imported: 3 }
-  }
-
-  const formData = new FormData()
-  formData.append('file', file)
-  const token = localStorage.getItem('token')
-  const res = await fetch('/api/consultant/import/coordinators', {
-    method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: formData,
-  })
-  if (!res.ok) throw new Error('Failed to import coordinator list')
-  return await res.json()
-}
-
-// ==================== Export ====================
-
 export interface ExportFilter {
   academicYears: string[]
   department?: string
@@ -273,46 +58,193 @@ export interface ExportFilter {
   studentName?: string
 }
 
-export async function exportRecordsByFilter(filter: ExportFilter): Promise<Blob> {
-  if (USE_MOCK) {
-    /**
-     * 兜底：返回一个伪 Word 文件。
-     * 真实场景下后端返回 application/vnd.openxmlformats-officedocument.wordprocessingml.document。
-     */
-    const text = generateMockWordContent(filter)
-    return new Blob([text], { type: 'text/plain' })
+// ==================== Helpers ====================
+
+function normalizeGroup(raw: any): GroupSummary {
+  return {
+    groupId: String(raw?.groupId ?? raw?.id ?? ''),
+    mentorName: String(raw?.mentorName ?? raw?.mentor?.realName ?? raw?.mentor?.username ?? ''),
+    mentorId: raw?.mentorId ?? raw?.mentor?.id,
+    studentCount: raw?.studentCount ?? raw?.members?.length,
+    major: raw?.major ?? raw?.majorName,
+    department: raw?.department ?? raw?.departmentName,
+  }
+}
+
+function groupMembersFromRecords(records: StudentGroupRecord[]): GroupMember[] {
+  return records.map((r) => ({
+    studentId: r.studentId,
+    name: r.studentId,
+    major: r.majorId,
+    status: r.status,
+  }))
+}
+
+function normalizeDepartment(raw: any, allUnits: any[]): DepartmentSummary {
+  const parent = allUnits.find((u) => u.id === raw.parentId)
+
+  return {
+    departmentId: String(raw?.id ?? ''),
+    departmentName: String(raw?.name ?? ''),
+    faculty: String(parent?.name ?? raw?.faculty ?? ''),
+    coordinatorName: raw?.coordinatorName ?? null,
+    coordinatorEmail: raw?.coordinatorEmail ?? null,
+  }
+}
+
+// ==================== Group APIs ====================
+
+/**
+ * listGroups() 旧页面无参数；当前后端是 search 接口。
+ * 不传 groupId 时会请求 /mentoring/groups/search，若后端支持返回全部则显示全部。
+ */
+export async function listGroups(groupId?: string): Promise<GroupSummary[]> {
+  const res = await get<any>('/mentoring/groups/search', {
+    groupId,
+  })
+
+  if (res.code !== 200) {
+    throw new Error(res.message || 'Failed to list groups')
   }
 
-  const token = localStorage.getItem('token')
-  const res = await fetch('/api/consultant/export', {
+  if (Array.isArray(res.data)) {
+    return res.data.map(normalizeGroup)
+  }
+
+  if (res.data) {
+    return [normalizeGroup(res.data)]
+  }
+
+  return []
+}
+
+export async function getGroupDetail(groupId: string): Promise<{
+  group: GroupSummary | null
+  members: GroupMember[]
+}> {
+  const gid = String(groupId || '').trim()
+  if (!gid) throw new Error('groupId is required')
+
+  const groups = await listGroups(gid)
+  const records = await getRecordsByGroup(gid)
+
+  return {
+    group: groups[0] || { groupId: gid, mentorName: '', studentCount: records.length },
+    members: groupMembersFromRecords(records),
+  }
+}
+
+export async function changeGroupMentor(
+  _groupId: string,
+  _newMentorId: string,
+): Promise<void> {
+  throw new Error('当前 OpenAPI 还没有 Change Mentor 接口，请后端补接口后在 consultant.ts 中接入。')
+}
+
+export async function addStudentToGroup(
+  _groupId: string,
+  _studentId: string,
+): Promise<void> {
+  throw new Error('当前 OpenAPI 还没有 Add Student To Group 接口，请后端补接口后在 consultant.ts 中接入。')
+}
+
+export async function removeStudentFromGroup(
+  _groupId: string,
+  _studentId: string,
+): Promise<void> {
+  throw new Error('当前 OpenAPI 还没有 Remove Student From Group 接口，请后端补接口后在 consultant.ts 中接入。')
+}
+
+// ==================== Department APIs ====================
+
+export async function listDepartments(): Promise<DepartmentSummary[]> {
+  const res = await get<any[]>('/org/admin/units')
+
+  if (res.code !== 200) {
+    throw new Error(res.message || 'Failed to list departments')
+  }
+
+  const units = res.data || []
+  return units
+    .filter((u) => String(u?.type ?? u?.unitType ?? '').toUpperCase() === 'DEPARTMENT')
+    .map((u) => normalizeDepartment(u, units))
+}
+
+export async function getDepartmentDetail(
+  deptId: string,
+): Promise<DepartmentSummary | null> {
+  const departments = await listDepartments()
+  return departments.find((d) => d.departmentId === deptId) || null
+}
+
+export async function designateCoordinator(
+  _payload: CoordinatorDesignation,
+): Promise<void> {
+  throw new Error('当前 OpenAPI 还没有手动指定 Coordinator 接口；可先使用 importCoordinatorList Excel 导入。')
+}
+
+export async function removeCoordinator(_deptId: string): Promise<void> {
+  throw new Error('当前 OpenAPI 还没有 Remove Coordinator 接口，请后端补接口后在 consultant.ts 中接入。')
+}
+
+// ==================== Imports ====================
+
+/**
+ * Faculty Consultant 导入学生-导师分配表。
+ * 后端描述：multipart/form-data，字段 file；可选 facultyOrgId。
+ */
+export async function importStudentNameList(
+  file: File,
+  facultyOrgId?: string,
+): Promise<{ created?: number; updated?: number; imported?: number; [key: string]: any }> {
+  if (!file || file.size === 0) throw new Error('Uploaded file is empty.')
+
+  const formData = new FormData()
+  formData.append('file', file)
+  if (facultyOrgId) formData.append('facultyOrgId', facultyOrgId)
+
+  const res = await upload<any>('/mentoring/import/mcp-allocation', formData)
+
+  if (res.code !== 200) {
+    throw new Error(res.message || 'Failed to import student name list')
+  }
+
+  return res.data || {}
+}
+
+/**
+ * 导入 MCP Coordinator Excel。
+ */
+export async function importCoordinatorList(
+  file: File,
+): Promise<{ imported?: number; [key: string]: any }> {
+  if (!file || file.size === 0) throw new Error('Uploaded file is empty.')
+
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const res = await upload<any>('/mentoring/import/coordinators', formData)
+
+  if (res.code !== 200) {
+    throw new Error(res.message || 'Failed to import coordinator list')
+  }
+
+  return res.data || {}
+}
+
+// ==================== Export ====================
+
+/**
+ * 当前 OpenAPI 没有 Word 导出接口。
+ * 这里先按常见路径 /api/mentoring/records/export 发送 blob；
+ * 如果后端实际路径不同，只改这里。
+ */
+export async function exportRecordsByFilter(filter: ExportFilter): Promise<Blob> {
+  return await requestBlob('/mentoring/records/export', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify(filter),
   })
-
-  if (!res.ok) throw new Error('Export failed')
-  return await res.blob()
-}
-
-function generateMockWordContent(filter: ExportFilter): string {
-  return [
-    '===== Mentor Caring System - Interview Record Export =====',
-    `Academic Year(s): ${filter.academicYears.join(', ') || 'ALL'}`,
-    `Department/Major: ${filter.department || filter.major || 'ALL'}`,
-    `Mentor: ${filter.mentorName || 'ALL'}`,
-    `Student: ${filter.studentName || 'ALL'}`,
-    '',
-    '------- Sample Record -------',
-    'Faculty: FST',
-    'Department: DCS',
-    'Major: CST',
-    'Student Name: Bnbuer1',
-    'Interview record: 1/1/2026',
-    'Problem statements: Study difficulty.',
-    'Interview summary: Give students advice on study method.',
-    'Follow-up actions: Fix the next interview time.',
-  ].join('\n')
 }
