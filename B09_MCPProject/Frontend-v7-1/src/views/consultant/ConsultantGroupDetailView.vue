@@ -3,201 +3,295 @@
     <div class="header">
       <div>
         <h1>Group Detail</h1>
-        <p class="desc">Group ID: {{ groupId }}</p>
+        <p class="desc">View and manage students in this mentoring group.</p>
       </div>
-      <button class="secondary" @click="goHome">Home</button>
+      <div class="actions">
+        <button class="secondary" @click="goBack">Back</button>
+        <button class="secondary" @click="goHome">Home</button>
+      </div>
     </div>
 
-    <div v-if="isLoading" class="loading">Loading group detail...</div>
+    <p v-if="message" class="message" :class="{ error: isError }">
+      {{ message }}
+    </p>
 
-    <div v-else-if="group">
-      <div class="info-row">
-        <p><strong>Group ID:</strong> {{ group.groupId }}</p>
-        <p><strong>Mentor:</strong> {{ group.mentorName }}</p>
-        <p><strong>Major:</strong> {{ group.major || 'N/A' }}</p>
-        <p><strong>Department:</strong> {{ group.department || 'N/A' }}</p>
+    <p v-if="loading" class="empty">Loading...</p>
 
-        <router-link to="/consultant/change-mentors" class="action-link">
-          Change Mentor
-        </router-link>
+    <section v-if="group" class="section">
+      <h2>{{ group.groupId || groupId }}</h2>
+      <div class="info-grid">
+        <div><strong>Mentor:</strong> {{ group.mentorName || group.currentMentor || '-' }}</div>
+        <div><strong>Major:</strong> {{ group.major || '-' }}</div>
+        <div><strong>Department:</strong> {{ group.department || '-' }}</div>
+        <div><strong>Students:</strong> {{ students.length }}</div>
       </div>
 
-      <h2>Students in This Group</h2>
+      <div class="toolbar">
+        <button @click="goChangeMentor">Change Mentor</button>
+      </div>
 
-      <table v-if="members.length > 0">
+      <div class="add-row">
+        <input
+          v-model.trim="newStudentId"
+          placeholder="Enter Student ID"
+          @keyup.enter="addStudent"
+        />
+        <button :disabled="saving || !newStudentId" @click="addStudent">
+          {{ saving ? 'Saving...' : 'Add Student' }}
+        </button>
+      </div>
+
+      <table v-if="students.length > 0">
         <thead>
-        <tr>
-          <th>Student ID</th>
-          <th>Name</th>
-          <th>Major</th>
-          <th>Status</th>
-          <th>Action</th>
-        </tr>
+          <tr>
+            <th>Student ID</th>
+            <th>Name</th>
+            <th>Major</th>
+            <th>Status</th>
+            <th>Records</th>
+            <th>Action</th>
+          </tr>
         </thead>
+
         <tbody>
-        <tr v-for="m in members" :key="m.studentId">
-          <td>{{ m.studentId }}</td>
-          <td>{{ m.name }}</td>
-          <td>{{ m.major || 'N/A' }}</td>
-          <td>{{ m.status || 'N/A' }}</td>
-          <td>
-            <button
+          <tr v-for="student in students" :key="student.studentId">
+            <td>{{ student.studentId }}</td>
+            <td>{{ student.name || student.studentName || '-' }}</td>
+            <td>{{ student.major || '-' }}</td>
+            <td>{{ student.status || '-' }}</td>
+            <td>{{ student.recordsCount ?? student.recordCount ?? '-' }}</td>
+            <td>
+              <button class="secondary" @click="viewRecord(student.studentId)">
+                View Record
+              </button>
+              <button
                 class="danger"
-                :disabled="removingId === m.studentId"
-                @click="remove(m.studentId)"
-            >
-              {{ removingId === m.studentId ? '...' : 'Delete' }}
-            </button>
-          </td>
-        </tr>
+                :disabled="saving"
+                @click="removeStudent(student.studentId)"
+              >
+                Remove
+              </button>
+            </td>
+          </tr>
         </tbody>
       </table>
 
       <p v-else class="empty">No students in this group.</p>
-
-      <div class="add-block">
-        <label>Add Student</label>
-        <div class="add-row">
-          <input
-              v-model="newStudentId"
-              type="text"
-              placeholder="9-digit student ID"
-          />
-          <button :disabled="adding" @click="add">
-            {{ adding ? 'Adding...' : 'Add' }}
-          </button>
-        </div>
-      </div>
-
-      <p v-if="message" class="message" :class="{ error: isError }">{{ message }}</p>
-    </div>
-
-    <div v-else>
-      <p class="error">{{ errorMsg || 'Group not found.' }}</p>
-    </div>
-
-    <div class="buttons">
-      <button class="secondary" @click="goBack">Back</button>
-    </div>
+    </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import {
-  getGroupDetail,
-  addStudentToGroup,
-  removeStudentFromGroup,
-} from '../../api/consultant'
-import type { GroupSummary, GroupMember } from '../../api/consultant'
 
 const route = useRoute()
 const router = useRouter()
 
-const groupId = String(route.params.groupId || '').trim()
-
-const group = ref<GroupSummary | null>(null)
-const members = ref<GroupMember[]>([])
-const isLoading = ref(true)
-const errorMsg = ref('')
+const groupId = String(route.params.groupId || '')
+const group = ref<any | null>(null)
+const students = ref<any[]>([])
+const newStudentId = ref('')
+const loading = ref(false)
+const saving = ref(false)
 const message = ref('')
 const isError = ref(false)
-const newStudentId = ref('')
-const removingId = ref('')
-const adding = ref(false)
 
-const STUDENT_ID_PATTERN = /^\d{9}$/
+onMounted(loadDetail)
 
-onMounted(load)
-
-async function load() {
-  isLoading.value = true
-  try {
-    const detail = await getGroupDetail(groupId)
-    group.value = detail.group
-    members.value = detail.members
-  } catch (err: any) {
-    errorMsg.value = err.message || 'Failed to load group.'
-  } finally {
-    isLoading.value = false
-  }
-}
-
-async function add() {
-  message.value = ''
-  isError.value = false
-
-  if (!STUDENT_ID_PATTERN.test(newStudentId.value.trim())) {
-    message.value = 'Warning: Student ID must be 9 digits.'
-    isError.value = true
+async function loadDetail() {
+  if (!groupId) {
+    showError('Missing group ID.')
     return
   }
 
-  adding.value = true
+  loading.value = true
+  clearMessage()
+
   try {
-    await addStudentToGroup(groupId, newStudentId.value.trim())
+    const consultantApi: any = await import('../../api/consultant')
+    if (!consultantApi.getGroupDetail) {
+      throw new Error('getGroupDetail API is not available.')
+    }
+
+    const data = await consultantApi.getGroupDetail(groupId)
+    group.value = data?.group || data?.groupDetail || data || { groupId }
+    students.value = normalizeMembers(data)
+  } catch (err: any) {
+    showError(err.message || 'Failed to load group detail.')
+  } finally {
+    loading.value = false
+  }
+}
+
+function normalizeMembers(data: any): any[] {
+  const list =
+    data?.members ||
+    data?.students ||
+    data?.groupMembers ||
+    data?.data?.members ||
+    data?.data?.students ||
+    []
+
+  return normalizeArray(list).map((item: any) => ({
+    ...item,
+    studentId: String(item.studentId ?? item.id ?? ''),
+    name: item.name ?? item.studentName ?? item.username,
+  }))
+}
+
+async function addStudent() {
+  const studentId = newStudentId.value.trim()
+  if (!studentId) {
+    showError('Please enter student ID.')
+    return
+  }
+
+  saving.value = true
+  clearMessage()
+
+  try {
+    const consultantApi: any = await import('../../api/consultant')
+    if (!consultantApi.addStudentToGroup) {
+      throw new Error('addStudentToGroup API is not available.')
+    }
+
+    await consultantApi.addStudentToGroup(groupId, studentId)
     newStudentId.value = ''
-    await load()
-    message.value = 'Student added.'
+    showSuccess('Student added successfully.')
+    await loadDetail()
   } catch (err: any) {
-    message.value = err.message || 'Failed to add.'
-    isError.value = true
+    showError(err.message || 'Failed to add student.')
   } finally {
-    adding.value = false
+    saving.value = false
   }
 }
 
-async function remove(studentId: string) {
-  if (!confirm(`Remove student ${studentId} from this group?`)) return
+async function removeStudent(studentId: string) {
+  if (!studentId) return
+  const ok = window.confirm(`Remove student ${studentId} from this group?`)
+  if (!ok) return
 
-  removingId.value = studentId
-  message.value = ''
+  saving.value = true
+  clearMessage()
+
   try {
-    await removeStudentFromGroup(groupId, studentId)
-    await load()
-    message.value = 'Student removed.'
+    const consultantApi: any = await import('../../api/consultant')
+    if (!consultantApi.removeStudentFromGroup) {
+      throw new Error('removeStudentFromGroup API is not available.')
+    }
+
+    await consultantApi.removeStudentFromGroup(groupId, studentId)
+    showSuccess('Student removed successfully.')
+    await loadDetail()
   } catch (err: any) {
-    message.value = err.message || 'Failed to remove.'
-    isError.value = true
+    showError(err.message || 'Failed to remove student.')
   } finally {
-    removingId.value = ''
+    saving.value = false
   }
 }
 
-function goBack() { router.back() }
-function goHome() { router.push('/main') }
+function viewRecord(studentId: string) {
+  router.push(`/student-record/${studentId}`)
+}
+
+function goChangeMentor() {
+  router.push('/consultant/change-mentors')
+}
+
+function goBack() {
+  router.push('/consultant/groups')
+}
+
+function goHome() {
+  router.push('/main')
+}
+
+function normalizeArray(data: any): any[] {
+  if (Array.isArray(data)) return data
+  if (Array.isArray(data?.data)) return data.data
+  if (Array.isArray(data?.records)) return data.records
+  return []
+}
+
+function clearMessage() {
+  message.value = ''
+  isError.value = false
+}
+
+function showSuccess(text: string) {
+  message.value = text
+  isError.value = false
+}
+
+function showError(text: string) {
+  message.value = text
+  isError.value = true
+}
 </script>
 
 <style scoped>
-.header { display: flex; justify-content: space-between; align-items: center; }
-
-.info-row {
-  margin-top: 22px; padding: 16px;
-  background: #f9fafb; border-radius: 8px;
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
-.info-row p { margin: 4px 0; }
-.action-link {
-  display: inline-block; margin-top: 8px;
-  color: #2563eb; font-weight: 600;
+.actions,
+.toolbar,
+.add-row {
+  display: flex;
+  gap: 10px;
 }
-
-h2 { margin-top: 28px; font-size: 17px; }
-table { width: 100%; border-collapse: collapse; margin-top: 14px; }
-th, td { padding: 10px; border: 1px solid #e5e7eb; text-align: left; }
-th { background: #f3f4f6; }
-
-.add-block { margin-top: 24px; }
-label { display: block; font-weight: 600; margin-bottom: 8px; }
-.add-row { display: flex; gap: 10px; max-width: 500px; }
+.section {
+  margin-top: 22px;
+}
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: 10px;
+  margin: 12px 0 18px;
+}
+.add-row {
+  max-width: 620px;
+  margin: 16px 0;
+}
 .add-row input {
-  flex: 1; padding: 10px; box-sizing: border-box;
-  border: 1px solid #d1d5db; border-radius: 6px;
+  flex: 1;
 }
-
-.empty { color: #6b7280; padding: 14px 0; }
-.buttons { margin-top: 22px; }
-.message { margin-top: 14px; color: #047857; }
-.error { color: #dc2626; }
-.loading { color: #6b7280; padding: 30px; text-align: center; }
+input {
+  padding: 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 18px;
+}
+th,
+td {
+  padding: 10px;
+  border: 1px solid #e5e7eb;
+  text-align: left;
+}
+th {
+  background: #f3f4f6;
+}
+.message {
+  margin-top: 14px;
+  color: #047857;
+}
+.error {
+  color: #dc2626;
+}
+.empty {
+  color: #6b7280;
+}
+.danger {
+  background: #dc2626;
+}
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
 </style>

@@ -1,51 +1,50 @@
 /**
  * src/api/admin.ts
  *
- * Administrator API - organization, faculty consultant, supporting staff.
+ * Admin APIs:
+ * - Faculty Consultant management
+ * - Supporting Staff creation
+ * - Organization wrappers
  */
 
 import { get, post, put } from './request'
 import {
-  getOrgUnits,
-  getOrgUnitById,
   createOrgUnit,
-  updateOrgUnit,
   deleteOrgUnit,
+  getOrgUnits,
   importOrgUnitsFromExcel,
+  updateOrgUnit,
 } from './org'
-import type { OrgUnit, CreateOrgUnitPayload } from './org'
 
-// ==================== Types ====================
+import type {
+  CreateOrgUnitPayload,
+  OrgUnit,
+  UpdateOrgUnitPayload,
+} from './org'
 
 export interface ConsultantInfo {
-  consultantId?: string
   id?: string
-  username?: string
+  username: string
   password?: string
-  name: string
+  email?: string
   realName?: string
-  email: string
   phone?: string | null
-  faculty?: string
   status?: number
-  raw?: any
+  createTime?: string
+  updateTime?: string
   [key: string]: any
 }
 
 export interface SupportingStaffInfo {
-  staffId?: string
   id?: string
-  username?: string
+  username: string
   password?: string
-  name: string
-  realName?: string
-  accountId: string
   email?: string
+  realName?: string
   phone?: string | null
   status?: number
-  canViewLog: boolean
-  canReplyFeedback: boolean
-  raw?: any
+  createTime?: string
+  updateTime?: string
   [key: string]: any
 }
 
@@ -55,111 +54,90 @@ export interface OrgEntry {
   major: string
 }
 
-// ==================== Missing Endpoint Helper ====================
-
 function missingEndpoint(name: string): never {
-  throw new Error(`${name}: backend endpoint is not provided in current OpenAPI. The function is kept here for future wiring.`)
+  throw new Error(`${name}: backend endpoint is not provided in current OpenAPI. A placeholder has been kept here for future integration.`)
 }
 
 // ==================== Faculty Consultant ====================
 
 export async function listConsultants(): Promise<ConsultantInfo[]> {
-  const res = await get<any[]>('/api/user/admin/faculty-consultants')
-
-  if (res.code !== 200) {
-    throw new Error(res.message || 'Failed to load faculty consultants')
-  }
-
-  return (res.data || []).map(normalizeConsultant)
+  const res = await get<ConsultantInfo[]>('/api/user/admin/faculty-consultants')
+  return res.data || []
 }
 
-export async function getConsultant(
-  consultantId: string,
-): Promise<ConsultantInfo | null> {
-  const id = String(consultantId || '').trim()
-  if (!id) throw new Error('consultantId is required')
+export const listFacultyConsultants = listConsultants
 
-  const res = await get<any>(
+export async function getConsultant(id: string): Promise<ConsultantInfo | null> {
+  const res = await get<ConsultantInfo>(
     `/api/user/admin/faculty-consultants/${encodeURIComponent(id)}`,
   )
 
-  if (res.code !== 200 || !res.data) {
-    return null
-  }
-
-  return normalizeConsultant(res.data)
+  return res.data || null
 }
 
-export async function addConsultant(info: ConsultantInfo): Promise<void> {
-  if (!info.email) throw new Error('Email is required')
+export const getFacultyConsultant = getConsultant
 
-  const res = await post<any>(
-    '/api/user/admin/faculty-consultants',
-    buildUserPayload(info),
-  )
-
-  if (res.code !== 200) {
-    throw new Error(res.message || 'Failed to add faculty consultant')
-  }
+export async function addConsultant(info: ConsultantInfo): Promise<any> {
+  const res = await post<any>('/api/user/admin/faculty-consultants', info)
+  return res.data
 }
 
-export async function updateConsultant(info: ConsultantInfo): Promise<void> {
-  const id = String(info.consultantId || info.id || '').trim()
-  if (!id) throw new Error('consultantId is required')
+export const createFacultyConsultant = addConsultant
+
+export async function updateConsultant(info: ConsultantInfo): Promise<any> {
+  const id = info.id
+  if (!id) throw new Error('consultant id is required')
+
+  const payload = { ...info }
+  delete payload.id
 
   const res = await put<any>(
     `/api/user/admin/faculty-consultants/${encodeURIComponent(id)}`,
-    buildUserPayload(info, true),
+    payload,
   )
 
-  if (res.code !== 200) {
-    throw new Error(res.message || 'Failed to update faculty consultant')
-  }
+  return res.data
 }
 
-/**
- * Still missing in current OpenAPI:
- * DELETE /api/user/admin/faculty-consultants/{id}
- */
+export async function updateFacultyConsultant(
+  id: string,
+  payload: Partial<ConsultantInfo>,
+): Promise<any> {
+  const res = await put<any>(
+    `/api/user/admin/faculty-consultants/${encodeURIComponent(id)}`,
+    payload,
+  )
+
+  return res.data
+}
+
 export async function deleteConsultant(consultantId: string): Promise<void> {
   if (!consultantId) throw new Error('consultantId is required')
   return missingEndpoint('deleteConsultant')
 }
 
+export const deleteFacultyConsultant = deleteConsultant
+
 // ==================== Supporting Staff ====================
 
-/**
- * Current OpenAPI only explicitly lists POST /api/user/admin/supporting-staff.
- * It says CRUD uses the same path with different methods, but GET/PUT/DELETE
- * are not actually declared. Keep those functions as placeholders.
- */
+export async function addSupportingStaff(info: SupportingStaffInfo): Promise<any> {
+  const res = await post<any>('/api/user/admin/supporting-staff', info)
+  return res.data
+}
+
+export const createSupportingStaff = addSupportingStaff
+
 export async function listSupportingStaff(): Promise<SupportingStaffInfo[]> {
   return missingEndpoint('listSupportingStaff')
 }
 
-export async function getSupportingStaff(
-  staffId: string,
-): Promise<SupportingStaffInfo | null> {
+export async function getSupportingStaff(staffId: string): Promise<SupportingStaffInfo | null> {
   if (!staffId) throw new Error('staffId is required')
   return missingEndpoint('getSupportingStaff')
 }
 
-export async function addSupportingStaff(info: SupportingStaffInfo): Promise<void> {
-  const accountId = String(info.accountId || info.username || '').trim()
-  if (!accountId) throw new Error('accountId is required')
-
-  const res = await post<any>(
-    '/api/user/admin/supporting-staff',
-    buildSupportingStaffPayload(info),
-  )
-
-  if (res.code !== 200) {
-    throw new Error(res.message || 'Failed to add supporting staff')
-  }
-}
-
 export async function updateSupportingStaff(info: SupportingStaffInfo): Promise<void> {
-  if (!info.staffId && !info.id) throw new Error('staffId is required')
+  if (!info.id) throw new Error('staff id is required')
   return missingEndpoint('updateSupportingStaff')
 }
 
@@ -168,17 +146,40 @@ export async function deleteSupportingStaff(staffId: string): Promise<void> {
   return missingEndpoint('deleteSupportingStaff')
 }
 
-// ==================== Organization ====================
+// ==================== Organization Wrappers ====================
+
+export async function getRawOrgUnits(): Promise<OrgUnit[]> {
+  return await getOrgUnits()
+}
 
 export async function getOrgTree(): Promise<OrgEntry[]> {
   const units = await getOrgUnits()
   return flattenOrgUnitsToEntries(units)
 }
 
-export async function getRawOrgUnits(): Promise<OrgUnit[]> {
-  return await getOrgUnits()
+export async function addOrgUnit(payload: CreateOrgUnitPayload): Promise<void> {
+  await createOrgUnit(payload)
 }
 
+export async function editOrgUnit(
+  id: string,
+  payload: UpdateOrgUnitPayload,
+): Promise<void> {
+  await updateOrgUnit(id, payload)
+}
+
+export async function removeOrgUnit(id: string): Promise<void> {
+  await deleteOrgUnit(id)
+}
+
+export async function importOrgFromExcel(file: File): Promise<void> {
+  await importOrgUnitsFromExcel(file)
+}
+
+/**
+ * Convenience function for old manual setup page:
+ * one row = Faculty + Department + Major.
+ */
 export async function addOrgEntry(entry: OrgEntry): Promise<void> {
   const facultyName = entry.faculty.trim()
   const departmentName = entry.department.trim()
@@ -191,7 +192,7 @@ export async function addOrgEntry(entry: OrgEntry): Promise<void> {
   let units = await getOrgUnits()
 
   let faculty = units.find(
-    (u) => isType(u, 'FACULTY') && u.name.toLowerCase() === facultyName.toLowerCase(),
+    (u) => isType(u, 'FACULTY') && sameName(u.name, facultyName),
   )
 
   if (!faculty) {
@@ -203,20 +204,16 @@ export async function addOrgEntry(entry: OrgEntry): Promise<void> {
     })
 
     units = await getOrgUnits()
-    faculty = units.find(
-      (u) => isType(u, 'FACULTY') && u.name.toLowerCase() === facultyName.toLowerCase(),
-    )
+    faculty = units.find((u) => isType(u, 'FACULTY') && sameName(u.name, facultyName))
   }
 
-  if (!faculty) {
-    throw new Error('Failed to create faculty.')
-  }
+  if (!faculty) throw new Error('Failed to create faculty.')
 
   let department = units.find(
     (u) =>
-      isType(u, 'DEPARTMENT') &&
+      (isType(u, 'DEPARTMENT') || isType(u, 'DEPT')) &&
       u.parentId === faculty!.id &&
-      u.name.toLowerCase() === departmentName.toLowerCase(),
+      sameName(u.name, departmentName),
   )
 
   if (!department) {
@@ -230,167 +227,54 @@ export async function addOrgEntry(entry: OrgEntry): Promise<void> {
     units = await getOrgUnits()
     department = units.find(
       (u) =>
-        isType(u, 'DEPARTMENT') &&
+        (isType(u, 'DEPARTMENT') || isType(u, 'DEPT')) &&
         u.parentId === faculty!.id &&
-        u.name.toLowerCase() === departmentName.toLowerCase(),
+        sameName(u.name, departmentName),
     )
   }
 
-  if (!department) {
-    throw new Error('Failed to create department.')
+  if (!department) throw new Error('Failed to create department.')
+
+  const existingMajor = units.find(
+    (u) =>
+      isType(u, 'MAJOR') &&
+      u.parentId === department!.id &&
+      sameName(u.name, majorName),
+  )
+
+  if (!existingMajor) {
+    await createOrgUnit({
+      name: majorName,
+      type: 'MAJOR',
+      parentId: department.id,
+      sortOrder: 1,
+    })
   }
-
-  await createOrgUnit({
-    name: majorName,
-    type: 'MAJOR',
-    parentId: department.id,
-    sortOrder: 1,
-  })
-}
-
-export async function addOrgUnit(payload: CreateOrgUnitPayload): Promise<void> {
-  await createOrgUnit(payload)
-}
-
-export async function editOrgUnit(
-  id: string,
-  payload: {
-    name?: string
-    sortOrder?: number
-  },
-): Promise<void> {
-  const exists = await getOrgUnitById(id)
-  if (!exists) throw new Error('Organization unit not found')
-
-  await updateOrgUnit(id, payload)
-}
-
-export async function removeOrgUnit(id: string): Promise<void> {
-  await deleteOrgUnit(id)
-}
-
-export async function importOrgFromExcel(file: File): Promise<void> {
-  await importOrgUnitsFromExcel(file)
-}
-
-// ==================== Helpers ====================
-
-function normalizeConsultant(raw: any): ConsultantInfo {
-  const id = String(raw.id ?? raw.consultantId ?? '')
-  const realName = raw.realName ?? raw.name ?? ''
-
-  return {
-    ...raw,
-    id,
-    consultantId: id,
-    username: raw.username ?? '',
-    name: realName || raw.username || id,
-    realName,
-    email: raw.email ?? '',
-    phone: raw.phone ?? null,
-    faculty: raw.faculty ?? raw.facultyName ?? '',
-    status: Number(raw.status ?? 1),
-    raw,
-  }
-}
-
-function normalizeSupportingStaff(raw: any): SupportingStaffInfo {
-  const id = String(raw.id ?? raw.staffId ?? '')
-  const username = raw.username ?? raw.accountId ?? ''
-  const realName = raw.realName ?? raw.name ?? username
-
-  return {
-    ...raw,
-    id,
-    staffId: id,
-    username,
-    accountId: username,
-    name: realName,
-    realName,
-    email: raw.email ?? '',
-    phone: raw.phone ?? null,
-    status: Number(raw.status ?? 1),
-    canViewLog: Boolean(raw.canViewLog ?? true),
-    canReplyFeedback: Boolean(raw.canReplyFeedback ?? true),
-    raw,
-  }
-}
-
-function buildUserPayload(info: ConsultantInfo, partial = false): Record<string, any> {
-  const realName = info.realName ?? info.name
-  const email = info.email
-  const username =
-    info.username ||
-    (email ? email.split('@')[0] : undefined) ||
-    realName ||
-    undefined
-
-  const payload: Record<string, any> = {
-    username,
-    email,
-    realName,
-    phone: info.phone ?? '',
-    status: info.status ?? 1,
-  }
-
-  if (!partial || info.password) {
-    // Backend example requires password when creating. Keep default only for
-    // compatibility with old add page that did not have a password field.
-    payload.password = info.password || '123456'
-  }
-
-  Object.keys(payload).forEach((key) => {
-    if (payload[key] === undefined || payload[key] === '') delete payload[key]
-  })
-
-  return payload
-}
-
-function buildSupportingStaffPayload(info: SupportingStaffInfo): Record<string, any> {
-  const username =
-    info.username ||
-    info.accountId ||
-    (info.email ? info.email.split('@')[0] : undefined)
-
-  const payload: Record<string, any> = {
-    username,
-    password: info.password || '123456',
-    email: info.email || `${username || 'support'}@bnbu.edu.cn`,
-    realName: info.realName || info.name || username,
-    phone: info.phone ?? '',
-    status: info.status ?? 1,
-  }
-
-  Object.keys(payload).forEach((key) => {
-    if (payload[key] === undefined || payload[key] === '') delete payload[key]
-  })
-
-  return payload
 }
 
 function isType(unit: OrgUnit, type: string): boolean {
-  return String(unit.type).toUpperCase() === type.toUpperCase()
+  return String(unit.type || '').toUpperCase() === type.toUpperCase()
+}
+
+function sameName(a?: string, b?: string): boolean {
+  return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase()
 }
 
 function flattenOrgUnitsToEntries(units: OrgUnit[]): OrgEntry[] {
   const faculties = units.filter((u) => isType(u, 'FACULTY'))
-  const departments = units.filter((u) => isType(u, 'DEPARTMENT'))
+  const departments = units.filter((u) => isType(u, 'DEPARTMENT') || isType(u, 'DEPT'))
   const majors = units.filter((u) => isType(u, 'MAJOR'))
 
-  const entries: OrgEntry[] = []
-
-  for (const major of majors) {
+  return majors.map((major) => {
     const department = departments.find((d) => d.id === major.parentId)
     const faculty = department
       ? faculties.find((f) => f.id === department.parentId)
       : undefined
 
-    entries.push({
+    return {
       faculty: faculty?.name || '',
       department: department?.name || '',
-      major: major.name,
-    })
-  }
-
-  return entries
+      major: major.name || '',
+    }
+  })
 }

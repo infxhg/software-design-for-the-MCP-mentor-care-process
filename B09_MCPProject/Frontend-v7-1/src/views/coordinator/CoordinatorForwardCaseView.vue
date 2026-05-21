@@ -3,203 +3,285 @@
     <div class="header">
       <div>
         <h1>Forward Cases</h1>
-        <p class="desc">Review cases forwarded by mentors and forward them to faculty consultants.</p>
+        <p class="desc">Review special cases and forward them to a Faculty Consultant.</p>
       </div>
       <button class="secondary" @click="goHome">Home</button>
     </div>
 
-    <section class="section">
-      <h2>Received Cases (From Mentors)</h2>
+    <p v-if="message" class="message" :class="{ error: isError }">
+      {{ message }}
+    </p>
 
-      <div v-if="isLoading" class="loading">Loading...</div>
+    <p v-if="loading" class="empty">Loading...</p>
 
-      <div v-else-if="cases.length === 0" class="empty">
-        No forwarded cases at the moment.
-      </div>
-
-      <div v-else>
-        <div
-            v-for="c in cases"
-            :key="c.caseId"
-            class="case-card"
-            :class="{ selected: selectedCaseId === c.caseId }"
-            @click="selectCase(c.caseId)"
+    <div class="layout" v-if="cases.length > 0">
+      <aside class="case-list">
+        <button
+          v-for="item in cases"
+          :key="item.id"
+          class="case-item"
+          :class="{ active: selectedCase?.id === item.id }"
+          @click="selectedCase = item"
         >
-          <p>
-            <strong>Case:</strong> {{ truncate(c.description, 60) }}
-            <span class="badge">{{ c.studentName }} ({{ c.studentId }})</span>
-          </p>
-          <p class="meta">From: {{ c.fromMentorName }} | Status: {{ c.status }}</p>
-        </div>
-      </div>
-    </section>
-
-    <section v-if="selectedCase" class="section">
-      <h2>Case Details</h2>
-      <div class="detail-box">
-        <p><strong>From Mentor:</strong> {{ selectedCase.fromMentorName }}</p>
-        <p><strong>Student:</strong> {{ selectedCase.studentName }} ({{ selectedCase.studentId }})</p>
-        <p><strong>Description:</strong></p>
-        <p class="description-text">{{ selectedCase.description }}</p>
-      </div>
-
-      <div class="form-item">
-        <label>Forward To (Faculty Consultant)</label>
-        <select v-model="consultantId">
-          <option value="">-- Select Faculty Consultant --</option>
-          <option
-              v-for="c in consultantList"
-              :key="c.id"
-              :value="c.id"
-          >
-            {{ c.name }} ({{ c.faculty }})
-          </option>
-        </select>
-      </div>
-
-      <div class="buttons">
-        <button :disabled="isForwarding" @click="forward">
-          {{ isForwarding ? 'Forwarding...' : 'Forward' }}
+          <strong>{{ item.studentName || item.studentId || 'Unknown student' }}</strong>
+          <span>{{ item.status || 'pending' }}</span>
         </button>
-        <button class="secondary" @click="goBack">Back</button>
-      </div>
+      </aside>
 
-      <p v-if="message" class="message" :class="{ error: isError }">{{ message }}</p>
-    </section>
+      <section v-if="selectedCase" class="detail">
+        <h2>Case Detail</h2>
+        <p><strong>Student:</strong> {{ selectedCase.studentName || selectedCase.studentId || '-' }}</p>
+        <p><strong>Mentor:</strong> {{ selectedCase.mentorName || selectedCase.mentorId || '-' }}</p>
+        <p><strong>Status:</strong> {{ selectedCase.status || '-' }}</p>
+        <p><strong>Description:</strong></p>
+        <p class="box">{{ selectedCase.caseDescription || selectedCase.description || '-' }}</p>
+
+        <div class="form-item">
+          <label>Faculty Consultant</label>
+          <select v-if="consultants.length > 0" v-model="consultantId">
+            <option value="">-- Select Consultant --</option>
+            <option v-for="user in consultants" :key="user.id" :value="user.id">
+              {{ user.name }}{{ user.email ? ` (${user.email})` : '' }}
+            </option>
+          </select>
+          <input
+            v-else
+            v-model.trim="consultantId"
+            placeholder="Enter Faculty Consultant ID or email"
+          />
+          <p v-if="consultants.length === 0" class="hint">
+            Consultant receiver-list API is not available yet, so manual ID input is allowed.
+          </p>
+        </div>
+
+        <button :disabled="submitting || !consultantId" @click="forwardCase">
+          {{ submitting ? 'Forwarding...' : 'Forward to Consultant' }}
+        </button>
+      </section>
+    </div>
+
+    <p v-else-if="!loading" class="empty">
+      No forwarded cases.
+    </p>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import {
-  listForwardedCasesForCoordinator,
-  forwardCaseToConsultant,
-} from '../../api/communication'
 
 const router = useRouter()
 
-const cases = ref<Array<{
-  caseId: string
-  fromMentorName: string
-  studentId: string
-  studentName: string
-  description: string
-  status: string
-}>>([])
-
-const isLoading = ref(true)
-const selectedCaseId = ref('')
+const cases = ref<any[]>([])
+const selectedCase = ref<any | null>(null)
+const consultants = ref<{ id: string; name: string; email?: string }[]>([])
 const consultantId = ref('')
+const loading = ref(false)
+const submitting = ref(false)
 const message = ref('')
 const isError = ref(false)
-const isForwarding = ref(false)
-
-const consultantList = ref([
-  { id: 'C001', name: 'Prof. Amy', faculty: 'FST' },
-  { id: 'C002', name: 'Prof. John', faculty: 'DCC' },
-])
-
-const selectedCase = computed(() =>
-    cases.value.find((c) => c.caseId === selectedCaseId.value),
-)
 
 onMounted(async () => {
-  try {
-    cases.value = await listForwardedCasesForCoordinator()
-  } catch (err: any) {
-    message.value = 'Failed to load cases: ' + (err.message || 'Unknown error')
-    isError.value = true
-  } finally {
-    isLoading.value = false
-  }
+  await Promise.all([loadCases(), loadConsultants()])
 })
 
-function selectCase(caseId: string) {
-  selectedCaseId.value = caseId
-  message.value = ''
-  isError.value = false
+async function loadCases() {
+  loading.value = true
+  clearMessage()
+
+  try {
+    const communicationApi: any = await import('../../api/communication')
+    const mentoringApi: any = await import('../../api/mentoring')
+
+    const fn =
+      communicationApi.listForwardedCasesForCoordinator ||
+      mentoringApi.listForwardedCasesForCoordinator ||
+      mentoringApi.listCoordinatorCases ||
+      mentoringApi.getCoordinatorCases
+
+    if (!fn) {
+      throw new Error('Coordinator case list API is not available.')
+    }
+
+    const data = await fn()
+    cases.value = normalizeCases(data)
+    selectedCase.value = cases.value[0] || null
+  } catch (err: any) {
+    showError(err.message || 'Failed to load cases.')
+  } finally {
+    loading.value = false
+  }
 }
 
-function truncate(text: string, n: number): string {
-  return text.length > n ? text.substring(0, n) + '...' : text
+async function loadConsultants() {
+  try {
+    const communicationApi: any = await import('../../api/communication')
+    const adminApi: any = await import('../../api/admin')
+
+    const fn =
+      communicationApi.getAvailableReceivers ||
+      communicationApi.listAvailableReceivers ||
+      adminApi.listConsultants
+
+    if (!fn) return
+
+    const data = fn === communicationApi.getAvailableReceivers ? await fn('case') : await fn()
+    consultants.value = normalizeUsers(data)
+  } catch {
+    consultants.value = []
+  }
 }
 
-async function forward() {
-  message.value = ''
-  isError.value = false
-
+async function forwardCase() {
+  if (!selectedCase.value) return
   if (!consultantId.value) {
-    message.value = 'Warning: Please select a faculty consultant.'
-    isError.value = true
+    showError('Please select or enter consultant ID.')
     return
   }
 
-  isForwarding.value = true
+  submitting.value = true
+  clearMessage()
+
   try {
-    await forwardCaseToConsultant({
-      caseId: selectedCaseId.value,
+    const communicationApi: any = await import('../../api/communication')
+    const mentoringApi: any = await import('../../api/mentoring')
+
+    const fn =
+      communicationApi.forwardCaseToConsultant ||
+      mentoringApi.forwardCaseToConsultant ||
+      mentoringApi.forwardSpecialCaseToConsultant
+
+    if (!fn) {
+      throw new Error('Forward-to-consultant API is not available.')
+    }
+
+    await fn({
+      caseId: selectedCase.value.id,
       consultantId: consultantId.value,
+      forwardToId: consultantId.value,
     })
-    message.value = 'Case forwarded successfully. Email notification has been sent.'
 
-    // Update local cases status
-    const c = cases.value.find((c) => c.caseId === selectedCaseId.value)
-    if (c) c.status = 'forwarded_to_consultant'
-
-    // Clear selection so we don't immediately allow another forward
-    selectedCaseId.value = ''
+    showSuccess('Case forwarded successfully.')
     consultantId.value = ''
+    await loadCases()
   } catch (err: any) {
-    message.value = err.message || 'Failed to forward case.'
-    isError.value = true
+    showError(err.message || 'Failed to forward case.')
   } finally {
-    isForwarding.value = false
+    submitting.value = false
   }
 }
 
-function goBack() { router.back() }
-function goHome() { router.push('/main') }
+function normalizeCases(data: any) {
+  const list = Array.isArray(data) ? data : data?.data || data?.records || []
+  return list
+    .map((item: any) => ({
+      ...item,
+      id: String(item.caseId ?? item.id ?? ''),
+      caseDescription: item.caseDescription ?? item.description,
+    }))
+    .filter((item: any) => item.id)
+}
+
+function normalizeUsers(data: any) {
+  const list = Array.isArray(data) ? data : data?.data || data?.records || []
+  return list
+    .map((item: any) => ({
+      id: String(item.id ?? item.userId ?? item.consultantId ?? item.email ?? ''),
+      name: item.name ?? item.consultantName ?? item.username ?? item.email,
+      email: item.email,
+    }))
+    .filter((item: any) => item.id)
+}
+
+function goHome() {
+  router.push('/main')
+}
+
+function clearMessage() {
+  message.value = ''
+  isError.value = false
+}
+
+function showSuccess(text: string) {
+  message.value = text
+  isError.value = false
+}
+
+function showError(text: string) {
+  message.value = text
+  isError.value = true
+}
 </script>
 
 <style scoped>
-.header { display: flex; justify-content: space-between; align-items: center; }
-.section { margin-top: 26px; padding-top: 18px; border-top: 1px solid #e5e7eb; }
-.section h2 { font-size: 18px; margin-bottom: 14px; }
-
-.case-card {
-  padding: 14px; margin-bottom: 10px;
-  border: 1px solid #e5e7eb; border-radius: 8px;
-  background: white; cursor: pointer;
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
-.case-card:hover { background: #f9fafb; }
-.case-card.selected { border-color: #2563eb; background: #eff6ff; }
-
-.badge {
-  display: inline-block; padding: 2px 8px;
-  background: #fef3c7; color: #92400e;
-  border-radius: 999px; font-size: 12px; margin-left: 8px;
+.layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 20px;
+  margin-top: 22px;
 }
-.meta { color: #6b7280; font-size: 13px; }
-
-.detail-box {
-  padding: 16px; background: #f9fafb; border-radius: 8px;
+.case-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
-.description-text {
-  margin-top: 8px; padding: 10px;
-  background: white; border-radius: 6px; border: 1px solid #e5e7eb;
+.case-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  background: #f9fafb;
+  color: #111827;
+  border: 1px solid #e5e7eb;
 }
-
-.form-item { margin-top: 16px; }
-label { display: block; margin-bottom: 8px; font-weight: 600; }
+.case-item.active {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+.detail {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 16px;
+}
+.box {
+  white-space: pre-wrap;
+  background: #f9fafb;
+  border-radius: 6px;
+  padding: 12px;
+}
+.form-item {
+  margin: 16px 0;
+}
+label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+input,
 select {
-  width: 100%; padding: 10px; box-sizing: border-box;
-  border: 1px solid #d1d5db; border-radius: 6px; max-width: 400px;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
 }
-
-.buttons { margin-top: 18px; }
-.buttons button { margin-right: 10px; }
-.message { margin-top: 14px; color: #047857; }
-.error { color: #dc2626; }
-.loading, .empty { color: #6b7280; padding: 16px 0; }
+.hint,
+.empty {
+  color: #6b7280;
+}
+.message {
+  margin-top: 14px;
+  color: #047857;
+}
+.error {
+  color: #dc2626;
+}
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
 </style>

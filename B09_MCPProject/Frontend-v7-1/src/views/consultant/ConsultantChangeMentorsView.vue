@@ -3,23 +3,25 @@
     <div class="header">
       <div>
         <h1>Change Mentors</h1>
-        <p class="desc">Change the mentor assigned to a group.</p>
+        <p class="desc">Change the mentor assigned to a mentoring group.</p>
       </div>
       <button class="secondary" @click="goHome">Home</button>
     </div>
 
     <div class="form">
-      <!-- Search a group -->
       <div class="form-item">
         <label>Search by Group ID</label>
         <div class="search-row">
           <input
-              v-model="searchGroupId"
-              type="text"
-              placeholder="Enter Group ID, e.g. B01"
-              @keyup.enter="searchGroup"
+            v-model.trim="searchGroupId"
+            type="text"
+            placeholder="Enter Group ID, e.g. 2025-2026-Y2"
+            @keyup.enter="searchGroup"
           />
-          <button @click="searchGroup">Search</button>
+          <button :disabled="loading" @click="searchGroup">Search</button>
+          <button class="secondary" :disabled="loading" @click="resetSearch">
+            Reset
+          </button>
         </div>
       </div>
 
@@ -27,68 +29,63 @@
         {{ message }}
       </p>
 
-      <!-- Result table -->
       <table v-if="filteredGroups.length > 0">
         <thead>
-        <tr>
-          <th>Group ID</th>
-          <th>Current Mentor</th>
-          <th>New Mentor</th>
-          <th>Action</th>
-        </tr>
+          <tr>
+            <th>Group ID</th>
+            <th>Current Mentor</th>
+            <th>New Mentor</th>
+            <th>Action</th>
+          </tr>
         </thead>
 
         <tbody>
-        <tr v-for="g in filteredGroups" :key="g.groupId">
-          <td>{{ g.groupId }}</td>
-
-          <!-- 重点：这里不再直接显示 g.mentorName，而是用 mentorId 转名字 -->
-          <td>{{ getCurrentMentorName(g) }}</td>
-
-          <td>
-            <select
-                v-model="newMentorIds[g.groupId]"
-                :disabled="savingId === g.groupId"
-            >
-              <option value="">-- Select Mentor --</option>
-              <option
-                  v-for="m in mentorList"
-                  :key="m.id"
-                  :value="m.id"
+          <tr v-for="group in filteredGroups" :key="group.groupId">
+            <td>{{ group.groupId }}</td>
+            <td>{{ getMentorDisplayName(group) }}</td>
+            <td>
+              <select
+                v-model="newMentorIds[group.groupId]"
+                :disabled="savingGroupId === group.groupId"
               >
-                {{ m.name }}
-              </option>
-            </select>
-          </td>
-
-          <td>
-            <button
-                :disabled="!newMentorIds[g.groupId] || savingId === g.groupId"
-                @click="saveChange(g.groupId)"
-            >
-              {{ savingId === g.groupId ? 'Saving...' : 'Save' }}
-            </button>
-          </td>
-        </tr>
+                <option value="">-- Select Mentor --</option>
+                <option
+                  v-for="mentor in mentorList"
+                  :key="mentor.id"
+                  :value="mentor.id"
+                >
+                  {{ mentor.name }}{{ mentor.email ? ` (${mentor.email})` : '' }}
+                </option>
+              </select>
+            </td>
+            <td>
+              <button
+                :disabled="!newMentorIds[group.groupId] || savingGroupId === group.groupId"
+                @click="saveChange(group)"
+              >
+                {{ savingGroupId === group.groupId ? 'Saving...' : 'Save' }}
+              </button>
+            </td>
+          </tr>
         </tbody>
       </table>
 
-      <p v-else-if="!isLoading" class="empty">
-        No groups found. Try another Group ID or click Search to load all.
+      <p v-else-if="!loading" class="empty">
+        No groups found.
       </p>
+
+      <p v-if="loading" class="empty">Loading...</p>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { listGroups, changeGroupMentor } from '../../api/consultant'
-import type { GroupSummary } from '../../api/consultant'
 
 const router = useRouter()
 
-type EditableGroup = GroupSummary & {
+type GroupItem = {
   groupId: string
   mentorId?: string
   mentorName?: string
@@ -98,93 +95,127 @@ type EditableGroup = GroupSummary & {
   [key: string]: any
 }
 
-const groups = ref<EditableGroup[]>([])
+type MentorItem = {
+  id: string
+  name: string
+  email?: string
+  raw?: any
+}
+
+const groups = ref<GroupItem[]>([])
+const mentorList = ref<MentorItem[]>([])
 const searchGroupId = ref('')
 const newMentorIds = reactive<Record<string, string>>({})
+const loading = ref(false)
+const savingGroupId = ref('')
 const message = ref('')
 const isError = ref(false)
-const isLoading = ref(true)
-const savingId = ref('')
-
-/**
- * 临时导师列表：
- * 因为后端现在只返回 mentorId，所以前端先用这个表把 ID 转成名字。
- *
- * 如果你们后端有更多 mentor，就继续往这里加。
- * 例如：
- * { id: 'M005', name: 'Tom Chen' }
- */
-const mentorList = ref([
-  { id: 'M001', name: 'Jack' },
-  { id: 'M002', name: 'Peter' },
-  { id: 'M003', name: 'Mark' },
-  { id: 'M004', name: 'Mary Lee' },
-])
 
 const filteredGroups = computed(() => {
-  const q = searchGroupId.value.trim().toLowerCase()
-  if (!q) return groups.value
-
+  const keyword = searchGroupId.value.trim().toLowerCase()
+  if (!keyword) return groups.value
   return groups.value.filter((g) =>
-      String(g.groupId || '').toLowerCase().includes(q),
+    String(g.groupId || '').toLowerCase().includes(keyword),
   )
 })
 
 onMounted(async () => {
-  await loadGroups()
+  await Promise.all([loadGroups(), loadMentors()])
 })
 
 async function loadGroups() {
-  message.value = ''
-  isError.value = false
-  isLoading.value = true
+  loading.value = true
+  clearMessage()
 
   try {
-    groups.value = (await listGroups()) as EditableGroup[]
+    const consultantApi: any = await import('../../api/consultant')
+    const fn = consultantApi.listGroups || consultantApi.searchGroupById
+
+    if (!fn) {
+      throw new Error('listGroups API is not available.')
+    }
+
+    const data = consultantApi.listGroups
+      ? await consultantApi.listGroups()
+      : await consultantApi.searchGroupById('')
+
+    groups.value = normalizeGroups(data)
   } catch (err: any) {
-    message.value = 'Failed to load groups: ' + (err.message || 'Unknown error')
-    isError.value = true
+    showError(err.message || 'Failed to load groups.')
   } finally {
-    isLoading.value = false
+    loading.value = false
   }
 }
 
-function searchGroup() {
-  message.value = ''
-  isError.value = false
+async function loadMentors() {
+  try {
+    const orgApi: any = await import('../../api/org')
+    const fn =
+      orgApi.searchAllMentors ||
+      orgApi.listAllMentors ||
+      orgApi.getAllMentors ||
+      orgApi.searchMyDeptMentors
 
-  if (filteredGroups.value.length === 0) {
-    message.value = 'No matching group found.'
-    isError.value = true
+    if (!fn) {
+      mentorList.value = []
+      return
+    }
+
+    const data = await fn('')
+    mentorList.value = normalizeMentors(data)
+  } catch {
+    mentorList.value = []
   }
 }
 
-/**
- * 有些后端可能返回：
- * mentorId: "M001"
- *
- * 有些旧数据可能返回：
- * mentorName: "Mentor#M001"
- *
- * 这个函数负责把它们统一变成 "M001"。
- */
+function normalizeGroups(data: any): GroupItem[] {
+  const list = Array.isArray(data) ? data : data?.data || data?.records || []
+  return list.map((item: any) => ({
+    ...item,
+    groupId: String(item.groupId ?? item.id ?? ''),
+    mentorId: item.mentorId ?? item.currentMentorId ?? item.mentor?.id,
+    mentorName: item.mentorName ?? item.currentMentor ?? item.mentor?.name,
+  }))
+}
+
+function normalizeMentors(data: any): MentorItem[] {
+  const list = Array.isArray(data) ? data : data?.data || data?.records || []
+  return list
+    .map((item: any) => {
+      const id = String(
+        item.mentorId ??
+          item.id ??
+          item.userId ??
+          item.accountId ??
+          item.email ??
+          '',
+      )
+
+      return {
+        id,
+        name:
+          item.mentorName ??
+          item.name ??
+          item.username ??
+          item.fullName ??
+          id,
+        email: item.email,
+        raw: item,
+      }
+    })
+    .filter((m: MentorItem) => m.id)
+}
+
 function normalizeMentorId(value: unknown): string {
   if (value === null || value === undefined) return ''
-
   const raw = String(value).trim()
   if (!raw) return ''
 
   const match = raw.match(/#\s*([A-Za-z0-9_-]+)$/)
-  if (match) return match[1]
-
-  return raw
+  return match ? match[1] : raw
 }
 
-/**
- * 从 group 里尽量取出 mentorId。
- * 兼容多种后端字段名。
- */
-function getGroupMentorId(group: EditableGroup): string {
+function getGroupMentorId(group: GroupItem): string {
   const candidates = [
     group.mentorId,
     group.currentMentorId,
@@ -199,123 +230,123 @@ function getGroupMentorId(group: EditableGroup): string {
     if (id) return id
   }
 
-  /**
-   * 如果后端只给了 mentorName: "Mentor#M001"，
-   * 也可以从这里解析出 M001。
-   */
-  const nameLikeCandidates = [
-    group.mentorName,
-    group.currentMentor,
-    group.mentor,
-  ]
-
+  const nameLikeCandidates = [group.mentorName, group.currentMentor]
   for (const item of nameLikeCandidates) {
     const id = normalizeMentorId(item)
-    if (id && /^M\d+$/i.test(id)) return id
+    if (id && /^[A-Za-z]*\d+$/i.test(id)) return id
   }
 
   return ''
 }
 
-/**
- * 根据 mentorId 找 mentor name。
- */
 function getMentorNameById(mentorId: string): string {
-  const normalizedId = normalizeMentorId(mentorId)
-
+  const id = normalizeMentorId(mentorId)
   const mentor = mentorList.value.find(
-      (m) => normalizeMentorId(m.id) === normalizedId,
+    (m) => normalizeMentorId(m.id) === id,
   )
-
   return mentor?.name || ''
 }
 
-/**
- * 页面上显示 Current Mentor 时统一走这个函数。
- *
- * 优先级：
- * 1. 如果能拿到 mentorId，并且 mentorList 里有对应名字，显示名字
- * 2. 如果后端本来就返回了正常名字，显示后端名字
- * 3. 如果只有 ID，就显示 ID
- */
-function getCurrentMentorName(group: EditableGroup): string {
+function getMentorDisplayName(group: GroupItem): string {
   const mentorId = getGroupMentorId(group)
 
   if (mentorId) {
-    const nameFromList = getMentorNameById(mentorId)
-    if (nameFromList) return nameFromList
+    const name = getMentorNameById(mentorId)
+    if (name) return name
   }
 
-  const possibleNames = [
-    group.mentorName,
-    group.currentMentor,
-    group.mentor?.name,
-    group.mentor?.mentorName,
-  ]
+  const fallback =
+    group.mentorName ||
+    group.currentMentor ||
+    group.mentor?.name ||
+    group.mentor?.mentorName
 
-  for (const item of possibleNames) {
-    if (!item) continue
-
-    const text = String(item).trim()
-    if (!text) continue
-
-    /**
-     * 如果是 Mentor#M001 这种，就不要直接显示，
-     * 继续尝试显示 ID 或名字。
-     */
-    if (/^Mentor#/.test(text)) continue
-
-    return text
+  if (fallback && !String(fallback).startsWith('Mentor#')) {
+    return String(fallback)
   }
 
   return mentorId || '-'
 }
 
-async function saveChange(groupId: string) {
-  message.value = ''
-  isError.value = false
+async function searchGroup() {
+  clearMessage()
 
-  const newMentorId = newMentorIds[groupId]
-
-  if (!newMentorId) {
-    message.value = 'Warning: Please select a new mentor.'
-    isError.value = true
+  if (!searchGroupId.value.trim()) {
+    showError('Please enter a Group ID, or click Reset to show all groups.')
     return
   }
 
-  savingId.value = groupId
+  if (filteredGroups.value.length === 0) {
+    showError('No matching group found.')
+  }
+}
+
+function resetSearch() {
+  searchGroupId.value = ''
+  clearMessage()
+}
+
+async function saveChange(group: GroupItem) {
+  clearMessage()
+
+  const groupId = group.groupId
+  const newMentorId = newMentorIds[groupId]
+
+  if (!groupId) {
+    showError('Invalid group ID.')
+    return
+  }
+
+  if (!newMentorId) {
+    showError('Please select a new mentor.')
+    return
+  }
+
+  savingGroupId.value = groupId
 
   try {
-    await changeGroupMentor(groupId, newMentorId)
+    const consultantApi: any = await import('../../api/consultant')
+    const fn = consultantApi.changeGroupMentor
 
-    const group = groups.value.find((g) => g.groupId === groupId)
-    const newMentorName = getMentorNameById(newMentorId) || newMentorId
-
-    /**
-     * 重点：
-     * 后端只返回 mentorId，所以保存成功后，
-     * 前端本地直接把当前行的 mentorId / mentorName 更新掉。
-     */
-    if (group) {
-      group.mentorId = newMentorId
-      group.currentMentorId = newMentorId
-      group.mentorName = newMentorName
-      group.currentMentor = newMentorName
+    if (!fn) {
+      throw new Error('changeGroupMentor API is not available.')
     }
 
-    newMentorIds[groupId] = ''
+    await fn(groupId, newMentorId)
 
-    message.value = `Mentor of group ${groupId} updated to ${newMentorName}.`
+    const newMentorName = getMentorNameById(newMentorId) || newMentorId
+
+    group.mentorId = newMentorId
+    group.currentMentorId = newMentorId
+    group.mentorName = newMentorName
+    group.currentMentor = newMentorName
+
+    newMentorIds[groupId] = ''
+    showSuccess(`Mentor of group ${groupId} updated to ${newMentorName}.`)
   } catch (err: any) {
-    message.value = err.message || 'Failed to change mentor.'
-    isError.value = true
+    showError(err.message || 'Failed to change mentor.')
   } finally {
-    savingId.value = ''
+    savingGroupId.value = ''
   }
 }
 
 function goHome() {
   router.push('/main')
+}
+
+function clearMessage() {
+  message.value = ''
+  isError.value = false
+}
+
+function showSuccess(text: string) {
+  message.value = text
+  isError.value = false
+}
+
+function showError(text: string) {
+  message.value = text
+  isError.value = true
 }
 </script>
 
@@ -325,41 +356,48 @@ function goHome() {
   justify-content: space-between;
   align-items: center;
 }
-
 .form {
   margin-top: 22px;
 }
-
 .form-item {
   margin-top: 16px;
 }
-
 label {
   display: block;
   margin-bottom: 8px;
   font-weight: 600;
 }
-
 .search-row {
   display: flex;
   gap: 10px;
-  max-width: 625px;
+  max-width: 720px;
 }
-
 .search-row input {
   flex: 1;
+}
+input,
+select,
+textarea {
   padding: 10px;
-  box-sizing: border-box;
   border: 1px solid #d1d5db;
   border-radius: 6px;
+  box-sizing: border-box;
 }
-
+select {
+  width: 100%;
+}
+button {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
 table {
   width: 100%;
   border-collapse: collapse;
   margin-top: 18px;
 }
-
 th,
 td {
   padding: 10px;
@@ -367,28 +405,16 @@ td {
   text-align: left;
   vertical-align: middle;
 }
-
 th {
   background: #f3f4f6;
 }
-
-select {
-  width: 100%;
-  padding: 8px;
-  box-sizing: border-box;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-}
-
 .message {
   margin-top: 14px;
   color: #047857;
 }
-
 .error {
   color: #dc2626;
 }
-
 .empty {
   color: #6b7280;
   padding: 16px 0;

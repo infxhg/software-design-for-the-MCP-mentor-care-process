@@ -1,32 +1,40 @@
 /**
  * src/api/consultant.ts
  *
- * Faculty Consultant API.
+ * Faculty Consultant page-facing APIs.
+ * This file wraps org.ts and mentoring.ts so pages can keep simple names.
  */
 
-import { get, getBlob } from './request'
+import { getOrgUnits, searchAllMentors } from './org'
+import type { MentorFromApi, OrgUnit } from './org'
 import {
-  importMcpAllocation,
-  importCoordinators,
-  searchGroups,
-  getRecordsByGroup,
+  addStudentToGroup as apiAddStudentToGroup,
+  changeGroupMentor as apiChangeGroupMentor,
+  closeCase,
+  exportFcGroupRecords,
+  exportGroupRecordsDoc,
   getGroupById,
   getGroupMembers,
-  changeMentoringGroupMentor,
-  addGroupMember,
-  removeGroupMember,
-  getConsultantCases,
-  closeConsultantCase,
-  exportStudentRecords,
-  exportGroupRecords,
+  importCoordinators,
+  importMcpAllocation,
+  listConsultantCases,
+  removeStudentFromGroup as apiRemoveStudentFromGroup,
+  searchGroups,
 } from './mentoring'
-import { getOrgUnits } from './org'
 
-// ==================== Types ====================
+import type {
+  GroupMember as ApiGroupMember,
+  GroupSearchResult,
+  SpecialCase,
+} from './mentoring'
+
+function missingEndpoint(name: string): never {
+  throw new Error(`${name}: backend endpoint is not provided in current OpenAPI. A placeholder has been kept here for future integration.`)
+}
 
 export interface GroupSummary {
   groupId: string
-  mentorName: string
+  mentorName?: string
   mentorId?: string
   studentCount?: number
   major?: string
@@ -36,7 +44,7 @@ export interface GroupSummary {
 
 export interface GroupMember {
   studentId: string
-  name: string
+  name?: string
   major?: string
   status?: string
   groupId?: string
@@ -57,25 +65,20 @@ export interface CoordinatorDesignation {
   coordinatorName: string
   email: string
   department: string
+  departmentId?: string
 }
 
 export interface ExportFilter {
   academicYears?: string[]
+  faculty?: string
   department?: string
   major?: string
   mentorName?: string
   studentName?: string
-  studentId?: string
   groupId?: string
 }
 
-// ==================== Missing Endpoint Helper ====================
-
-function missingEndpoint(name: string): never {
-  throw new Error(`${name}: backend endpoint is not provided in current OpenAPI. The function is kept here for future wiring.`)
-}
-
-// ==================== Group APIs ====================
+// ==================== Groups ====================
 
 export async function listGroups(): Promise<GroupSummary[]> {
   const groups = await searchGroups()
@@ -83,150 +86,74 @@ export async function listGroups(): Promise<GroupSummary[]> {
 }
 
 export async function searchGroupById(groupId: string): Promise<GroupSummary[]> {
-  const gid = String(groupId || '').trim()
-  if (!gid) return []
-
-  const groups = await searchGroups(gid)
-
-  if (groups.length > 0) {
-    return groups.map(normalizeGroup)
-  }
-
-  const detail = await getGroupById(gid)
-  return detail ? [normalizeGroup(detail)] : []
+  const groups = await searchGroups(groupId)
+  return groups.map(normalizeGroup)
 }
 
 export async function getGroupDetail(groupId: string): Promise<{
   group: GroupSummary | null
   members: GroupMember[]
 }> {
-  const gid = String(groupId || '').trim()
-  if (!gid) {
-    return { group: null, members: [] }
-  }
-
-  const groupList = await searchGroupById(gid)
-  const group = groupList.length > 0 ? groupList[0] : null
-
-  // Prefer members endpoint from new OpenAPI; fall back to record endpoint.
-  let members: GroupMember[] = []
-
-  try {
-    const memberList = await getGroupMembers(gid)
-    members = memberList.map((item: any) => ({
-      studentId: item.studentId,
-      name: item.name ?? item.studentName ?? item.username ?? item.studentId,
-      major: item.major ?? item.majorId,
-      status: item.status,
-      groupId: item.groupId ?? gid,
-      recordsCount: 0,
-      raw: item,
-    }))
-  } catch {
-    const records = await getRecordsByGroup(gid)
-    members = records.map((item: any) => ({
-      studentId: item.studentId,
-      name: item.name ?? item.studentName ?? item.username ?? item.studentId,
-      major: item.major ?? item.majorId,
-      status: item.status,
-      groupId: item.groupId ?? gid,
-      recordsCount: Array.isArray(item.interviewRecords)
-        ? item.interviewRecords.length
-        : 0,
-      raw: item,
-    }))
-  }
+  const group = await getGroupById(groupId)
+  const members = await getGroupMembers(groupId)
 
   return {
-    group,
-    members,
+    group: group ? normalizeGroup(group) : null,
+    members: members.map(normalizeMember),
   }
 }
 
-export async function changeGroupMentor(
-  groupId: string,
-  newMentorId: string,
-): Promise<void> {
+export async function changeGroupMentor(groupId: string, newMentorId: string): Promise<void> {
   if (!groupId) throw new Error('groupId is required')
   if (!newMentorId) throw new Error('newMentorId is required')
 
-  await changeMentoringGroupMentor(groupId, newMentorId)
+  await apiChangeGroupMentor(groupId, newMentorId)
 }
 
-export async function addStudentToGroup(
-  groupId: string,
-  studentId: string,
-): Promise<void> {
+export async function addStudentToGroup(groupId: string, studentId: string): Promise<void> {
   if (!groupId) throw new Error('groupId is required')
   if (!studentId) throw new Error('studentId is required')
 
-  await addGroupMember(groupId, studentId)
+  await apiAddStudentToGroup(groupId, studentId)
 }
 
-export async function removeStudentFromGroup(
-  groupId: string,
-  studentId: string,
-): Promise<void> {
+export async function removeStudentFromGroup(groupId: string, studentId: string): Promise<void> {
   if (!groupId) throw new Error('groupId is required')
   if (!studentId) throw new Error('studentId is required')
 
-  await removeGroupMember(groupId, studentId)
+  await apiRemoveStudentFromGroup(groupId, studentId)
 }
 
-// ==================== Department APIs ====================
+// ==================== Mentors ====================
+
+export async function listAllMentors(keyword?: string): Promise<MentorFromApi[]> {
+  return await searchAllMentors(keyword)
+}
+
+// ==================== Departments / Coordinators ====================
 
 export async function listDepartments(): Promise<DepartmentSummary[]> {
   const units = await getOrgUnits()
-
-  const departments = units.filter(
-    (u) => String(u.type).toUpperCase() === 'DEPARTMENT',
-  )
-
-  const faculties = units.filter(
-    (u) => String(u.type).toUpperCase() === 'FACULTY',
-  )
-
-  return departments.map((dept) => {
-    const faculty = faculties.find((f) => f.id === dept.parentId)
-
-    return {
-      departmentId: dept.id,
-      departmentName: dept.name,
-      faculty: faculty?.name || '',
-      coordinatorName: dept.coordinatorName ?? null,
-      coordinatorEmail: dept.coordinatorEmail ?? null,
-      raw: dept,
-    }
-  })
+  return buildDepartments(units)
 }
 
-export async function getDepartmentDetail(
-  deptId: string,
-): Promise<DepartmentSummary | null> {
+export async function getDepartmentDetail(deptId: string): Promise<DepartmentSummary | null> {
   const departments = await listDepartments()
-  return departments.find((d) => d.departmentId === deptId) || null
+  return departments.find((item) => item.departmentId === deptId) || null
 }
 
-/**
- * Missing: manual coordinator designation endpoint.
- * Existing backend currently supports coordinator Excel import only.
- */
-export async function designateCoordinator(
-  payload: CoordinatorDesignation,
-): Promise<void> {
+export async function designateCoordinator(payload: CoordinatorDesignation): Promise<void> {
   if (!payload.coordinatorName) throw new Error('Coordinator name is required')
   if (!payload.email) throw new Error('Coordinator email is required')
-  if (!payload.department) throw new Error('Department is required')
+  if (!payload.department && !payload.departmentId) throw new Error('Department is required')
 
+  // Current OpenAPI supports Excel import only:
+  // GET /api/mentoring/import/coordinators is documented, but upload should be POST multipart.
   return missingEndpoint('designateCoordinator')
 }
 
-/**
- * Missing: remove coordinator endpoint.
- */
 export async function removeCoordinator(deptId: string): Promise<void> {
   if (!deptId) throw new Error('deptId is required')
-
   return missingEndpoint('removeCoordinator')
 }
 
@@ -234,8 +161,9 @@ export async function removeCoordinator(deptId: string): Promise<void> {
 
 export async function importStudentNameList(
   file: File,
+  facultyOrgId?: string,
 ): Promise<{ created?: number; updated?: number; [key: string]: any }> {
-  const data = await importMcpAllocation(file)
+  const data = await importMcpAllocation(file, facultyOrgId)
   return data || {}
 }
 
@@ -246,104 +174,80 @@ export async function importCoordinatorList(
   return data || {}
 }
 
-// ==================== Case APIs ====================
+// ==================== Cases ====================
 
-export async function listConsultantCases(): Promise<any[]> {
-  return getConsultantCases()
+export async function listCasesForConsultant(): Promise<SpecialCase[]> {
+  return await listConsultantCases()
 }
 
-export async function closeCase(caseId: string): Promise<void> {
-  await closeConsultantCase(caseId)
+export async function closeConsultantCase(caseId: string): Promise<void> {
+  await closeCase(caseId)
 }
 
 // ==================== Export ====================
 
-/**
- * Current OpenAPI only has:
- * - GET /api/mentoring/export/student/{studentId}
- * - GET /api/mentoring/export/group/{groupId}
- *
- * There is still no full Faculty Consultant filtered Word export.
- * This function connects the two available export cases and keeps a clear
- * placeholder for broader filter export.
- */
+export async function exportRecordsByGroup(groupId: string): Promise<Blob> {
+  return await exportGroupRecordsDoc(groupId)
+}
+
+export async function exportFcRecordsByGroup(groupId: string): Promise<Blob> {
+  return await exportFcGroupRecords(groupId)
+}
+
 export async function exportRecordsByFilter(filter: ExportFilter): Promise<Blob> {
-  if (!filter) throw new Error('Export filter is required')
-
-  if (filter.studentId) {
-    return exportStudentRecords(filter.studentId)
-  }
-
   if (filter.groupId) {
-    return exportGroupRecords(filter.groupId)
+    return await exportGroupRecordsDoc(filter.groupId)
   }
 
+  // Missing in OpenAPI:
+  // GET/POST /api/mentoring/export/consultant with faculty/department/major/mentor/student filters.
   return missingEndpoint('exportRecordsByFilter')
-}
-
-// Optional lower-level export by raw query if backend later adds it.
-export async function exportConsultantRecordsRaw(filter: ExportFilter): Promise<Blob> {
-  return getBlob('/api/mentoring/export/consultant', filter as any)
-}
-
-// ==================== Optional Raw API ====================
-
-export async function getFeedbackForConsultant(): Promise<any[]> {
-  const res = await get<any[]>('/api/user/feedback')
-
-  if (res.code !== 200) {
-    throw new Error(res.message || 'Failed to load feedback')
-  }
-
-  return res.data || []
-}
-
-// ==================== Deprecated / future placeholders ====================
-
-/**
- * Kept for future if backend adds direct coordinator management endpoints.
- */
-export async function updateDepartmentCoordinator(
-  deptId: string,
-  coordinatorId: string,
-): Promise<void> {
-  if (!deptId) throw new Error('deptId is required')
-  if (!coordinatorId) throw new Error('coordinatorId is required')
-
-  return missingEndpoint('updateDepartmentCoordinator')
-}
-
-/**
- * Kept for future if backend exposes hard delete through documented endpoint.
- */
-export async function removeDepartmentCoordinator(deptId: string): Promise<void> {
-  if (!deptId) throw new Error('deptId is required')
-
-  return missingEndpoint('removeDepartmentCoordinator')
 }
 
 // ==================== Helpers ====================
 
-function normalizeGroup(raw: any): GroupSummary {
-  const groupId = raw.groupId ?? raw.id ?? ''
-  const mentorName =
-    raw.mentorName ??
-    raw.mentor ??
-    raw.teacherName ??
-    raw.mentorRealName ??
-    ''
-  const mentorId = raw.mentorId ?? raw.teacherId
-  const studentCount = raw.studentCount ?? raw.count
-  const major = raw.major ?? raw.majorName
-  const department = raw.department ?? raw.departmentName
-
+function normalizeGroup(raw: GroupSearchResult | any): GroupSummary {
   return {
-    groupId,
-    mentorName,
-    mentorId,
-    studentCount,
-    major,
-    department,
+    groupId: String(raw?.groupId ?? raw?.id ?? ''),
+    mentorName: raw?.mentorName ?? raw?.currentMentor,
+    mentorId: raw?.mentorId ?? raw?.currentMentorId,
+    studentCount: raw?.studentCount ?? raw?.count,
+    major: raw?.major ?? raw?.majorName,
+    department: raw?.department ?? raw?.departmentName,
     raw,
   }
+}
+
+function normalizeMember(raw: ApiGroupMember | any): GroupMember {
+  return {
+    studentId: String(raw?.studentId ?? raw?.id ?? ''),
+    name: raw?.name ?? raw?.studentName ?? raw?.realName ?? raw?.username,
+    major: raw?.major ?? raw?.majorName ?? raw?.majorId,
+    status: raw?.status,
+    groupId: raw?.groupId,
+    recordsCount: raw?.recordsCount,
+    raw,
+  }
+}
+
+function buildDepartments(units: OrgUnit[]): DepartmentSummary[] {
+  const faculties = units.filter((u) => sameType(u, 'FACULTY'))
+  const departments = units.filter((u) => sameType(u, 'DEPARTMENT') || sameType(u, 'DEPT'))
+
+  return departments.map((dept) => {
+    const faculty = faculties.find((f) => f.id === dept.parentId)
+
+    return {
+      departmentId: dept.id,
+      departmentName: dept.name,
+      faculty: faculty?.name || '',
+      coordinatorName: (dept as any).coordinatorName || null,
+      coordinatorEmail: (dept as any).coordinatorEmail || null,
+      raw: dept,
+    }
+  })
+}
+
+function sameType(unit: OrgUnit, type: string): boolean {
+  return String(unit.type || '').toUpperCase() === type.toUpperCase()
 }
