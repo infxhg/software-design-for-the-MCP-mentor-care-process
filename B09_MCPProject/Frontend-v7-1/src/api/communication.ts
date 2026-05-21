@@ -3,31 +3,63 @@ import {
   cancelAppointmentSlot,
   confirmAppointmentSlot,
   createAppointmentSlots,
+  forwardCaseToConsultant,
   getMentorAppointmentSlots,
+  listCoordinatorCases,
+  listForwardedCasesForCoordinator,
+  sendInterviewInvitation,
   setAppointmentVenue,
   type AppointmentSlot,
+  type CaseItem,
 } from './mentoring'
 
 export interface MessageItem {
   id: string | number
   senderId: string
+  senderName?: string
   content: string
   createTime: string
+  read?: boolean
+  raw?: any
   [key: string]: any
 }
 
-export async function sendMessage(payload: {
+export type MessageEntity = MessageItem
+
+export interface SendMessagePayload {
   recipientIds: string[]
   content: string
-}): Promise<void> {
+  [key: string]: any
+}
+
+function normalizeMessage(raw: any): MessageItem {
+  return {
+    ...raw,
+    id: raw?.id ?? raw?.messageId ?? '',
+    senderId: raw?.senderId ?? '',
+    senderName: raw?.senderName ?? raw?.sender,
+    content: raw?.content ?? '',
+    createTime: raw?.createTime ?? '',
+    read: raw?.read,
+    raw,
+  }
+}
+
+export async function sendMessage(payload: SendMessagePayload): Promise<void> {
   const res = await post<null>('/api/message/send', payload)
   unwrap(res)
 }
 
-export async function listMessages(): Promise<MessageItem[]> {
-  const res = await get<MessageItem[]>('/api/message/list')
-  return unwrap(res) || []
+export async function sendNormalMessage(recipientIds: string[], content: string): Promise<void> {
+  return sendMessage({ recipientIds, content })
 }
+
+export async function listMessages(): Promise<MessageItem[]> {
+  const res = await get<any[]>('/api/message/list')
+  return (unwrap(res) || []).map(normalizeMessage)
+}
+
+export const listMyMessages = listMessages
 
 export async function getUnreadMessageCount(): Promise<number> {
   const res = await get<number>('/api/message/unread-count')
@@ -35,44 +67,42 @@ export async function getUnreadMessageCount(): Promise<number> {
 }
 
 export async function getMessageDetail(messageId: string | number): Promise<MessageItem> {
-  const res = await get<MessageItem>(`/api/message/${encodeURIComponent(String(messageId))}`)
-  return unwrap(res)
+  const res = await get<any>(`/api/message/${encodeURIComponent(String(messageId))}`)
+  return normalizeMessage(unwrap(res))
+}
+
+export async function markMessageRead(messageId: string | number): Promise<void> {
+  await getMessageDetail(messageId)
+}
+
+export async function replyMessage(
+  _messageId: string | number,
+  recipientIds: string[],
+  content: string,
+): Promise<void> {
+  return sendMessage({ recipientIds, content })
+}
+
+export async function getAvailableReceivers(_scene?: string): Promise<any[]> {
+  // Not present in uploaded OpenAPI.
+  throw new Error('Receiver-list API is not available. Please enter receiver IDs manually.')
 }
 
 export {
   cancelAppointmentSlot,
   confirmAppointmentSlot,
   createAppointmentSlots,
+  forwardCaseToConsultant,
   getMentorAppointmentSlots,
+  listCoordinatorCases,
+  listForwardedCasesForCoordinator,
+  sendInterviewInvitation,
   setAppointmentVenue,
-}
-
-export type { AppointmentSlot }
-
-// 兼容旧页面函数名
-export async function sendInterviewInvitation(
-  _studentId: string,
-  slots: Array<{ date?: string; slotDate?: string; time?: string; startTime?: string }>,
-): Promise<AppointmentSlot[]> {
-  if (!slots.length) throw new Error('At least one slot is required')
-
-  const firstDate = slots[0].slotDate || slots[0].date
-  if (!firstDate) throw new Error('slotDate is required')
-
-  const startTimes = slots
-    .filter((s) => (s.slotDate || s.date) === firstDate)
-    .map((s) => s.startTime || s.time)
-    .filter(Boolean) as string[]
-
-  return createAppointmentSlots({
-    slotDate: firstDate,
-    startTimes,
-  })
 }
 
 export async function studentConfirmSlot(
   slotId: string,
-  slot?: { slotId?: string; date?: string; time?: string; slotDate?: string; startTime?: string },
+  slot?: { slotId?: string },
 ): Promise<AppointmentSlot> {
   return confirmAppointmentSlot(slot?.slotId || slotId)
 }
@@ -81,87 +111,21 @@ export async function mentorConfirmVenue(slotId: string, venue: string): Promise
   return setAppointmentVenue(slotId, venue)
 }
 
-
-// ==================== Backward compatibility for old student communication page ====================
-
-export interface InterviewSlotForView {
-  slotId?: string
-  date: string
-  time: string
-  venue?: string | null
-}
-
 export interface InterviewInvitation {
   invitationId: string
   fromMentorId?: string
   fromMentorName?: string
-  slots: InterviewSlotForView[]
-  chosenSlot?: InterviewSlotForView
+  slots: Array<{ slotId?: string; date: string; time: string; venue?: string | null }>
+  chosenSlot?: { slotId?: string; date: string; time: string; venue?: string | null }
   venue?: string | null
-  status: 'pending' | 'student_confirmed' | 'venue_confirmed' | string
+  status: string
   raw?: any
 }
 
 export async function getMyInvitations(): Promise<InterviewInvitation[]> {
-  // This endpoint is not listed in the OpenAPI. Keep the function so old pages compile.
-  // If backend later provides it, this will start working automatically.
-  try {
-    const res = await get<any[]>('/api/mentoring/appointments/invitations/mine')
-    const data = unwrap(res) || []
-    return Array.isArray(data) ? data.map(normalizeInvitation) : []
-  } catch {
-    return []
-  }
+  // No dedicated invitation endpoint exists in uploaded OpenAPI.
+  // Student pages should normally use getMyMentor + getMentorAppointmentSlots.
+  return []
 }
 
-function normalizeInvitation(raw: any): InterviewInvitation {
-  const rawSlots = Array.isArray(raw?.slots) ? raw.slots : raw?.slotId ? [raw] : []
-  const slots = rawSlots.map((slot: any) => ({
-    slotId: slot?.slotId ?? slot?.id,
-    date: normalizeDateText(slot?.date ?? slot?.slotDate),
-    time: normalizeTimeText(slot?.time ?? slot?.startTime),
-    venue: slot?.venue ?? null,
-  }))
-
-  const chosenRaw = raw?.chosenSlot || raw?.confirmedSlot || raw?.selectedSlot
-  const chosenSlot = chosenRaw
-    ? {
-        slotId: chosenRaw?.slotId ?? chosenRaw?.id,
-        date: normalizeDateText(chosenRaw?.date ?? chosenRaw?.slotDate),
-        time: normalizeTimeText(chosenRaw?.time ?? chosenRaw?.startTime),
-        venue: chosenRaw?.venue ?? raw?.venue ?? null,
-      }
-    : undefined
-
-  return {
-    invitationId: String(raw?.invitationId ?? raw?.slotId ?? raw?.id ?? ''),
-    fromMentorId: raw?.fromMentorId ?? raw?.mentorId,
-    fromMentorName: raw?.fromMentorName ?? raw?.mentorName ?? raw?.senderName ?? 'Mentor',
-    slots,
-    chosenSlot,
-    venue: raw?.venue ?? chosenSlot?.venue ?? null,
-    status: normalizeInvitationStatus(raw?.status, raw?.venue, chosenSlot),
-    raw,
-  }
-}
-
-function normalizeInvitationStatus(status: any, venue: any, chosenSlot?: InterviewSlotForView): string {
-  const text = String(status || '').toLowerCase()
-  if (text.includes('venue')) return 'venue_confirmed'
-  if (text.includes('confirmed') || text.includes('booked') || chosenSlot) {
-    return venue ? 'venue_confirmed' : 'student_confirmed'
-  }
-  return 'pending'
-}
-
-function normalizeDateText(value: any): string {
-  if (!value) return ''
-  return String(value).slice(0, 10)
-}
-
-function normalizeTimeText(value: any): string {
-  if (!value) return ''
-  const text = String(value)
-  const match = text.match(/(\d{2}):(\d{2})/)
-  return match ? `${match[1]}:${match[2]}` : text
-}
+export type { AppointmentSlot, CaseItem }

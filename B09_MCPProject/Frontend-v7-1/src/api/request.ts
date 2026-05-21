@@ -1,3 +1,5 @@
+const API_BASE = String(import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
+
 export interface ApiResponse<T = any> {
   code: number
   message: string
@@ -10,7 +12,7 @@ export type QueryValue =
   | boolean
   | null
   | undefined
-  | Array<string | number | boolean>
+  | Array<string | number | boolean | null | undefined>
 
 export type QueryParams = Record<string, QueryValue>
 
@@ -21,23 +23,21 @@ export interface RequestOptions extends Omit<RequestInit, 'body'> {
   rawResponse?: boolean
 }
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
+function joinUrl(url: string): string {
+  if (/^https?:\/\//i.test(url)) return url
 
-function joinUrl(path: string): string {
-  if (/^https?:\/\//i.test(path)) return path
+  const path = url.startsWith('/') ? url : `/${url}`
 
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  if (!API_BASE) return path
 
-  if (!API_BASE) return normalizedPath
-
-  // 兼容两种配置：
+  // Allow either:
   // VITE_API_BASE_URL=http://host:8080
   // VITE_API_BASE_URL=http://host:8080/api
-  if (API_BASE.endsWith('/api') && normalizedPath.startsWith('/api/')) {
-    return `${API_BASE}${normalizedPath.slice('/api'.length)}`
+  if (API_BASE.endsWith('/api') && path.startsWith('/api/')) {
+    return `${API_BASE}${path.slice('/api'.length)}`
   }
 
-  return `${API_BASE}${normalizedPath}`
+  return `${API_BASE}${path}`
 }
 
 export function buildQuery(params?: QueryParams): string {
@@ -60,12 +60,28 @@ export function buildQuery(params?: QueryParams): string {
     search.append(key, String(value))
   })
 
-  const qs = search.toString()
-  return qs ? `?${qs}` : ''
+  const text = search.toString()
+  return text ? `?${text}` : ''
 }
 
 function getToken(): string {
-  return localStorage.getItem('token') || ''
+  try {
+    return localStorage.getItem('token') || ''
+  } catch {
+    return ''
+  }
+}
+
+function clearLoginState(): void {
+  try {
+    localStorage.removeItem('token')
+    localStorage.removeItem('role')
+    localStorage.removeItem('username')
+    localStorage.removeItem('userInfo')
+    localStorage.removeItem('userId')
+  } catch {
+    // ignore
+  }
 }
 
 function buildHeaders(body: unknown, options: RequestOptions): Headers {
@@ -73,52 +89,36 @@ function buildHeaders(body: unknown, options: RequestOptions): Headers {
 
   if (!options.skipAuth) {
     const token = getToken()
-    if (token) headers.set('Authorization', token.startsWith('Bearer ') ? token : `Bearer ${token}`)
+    if (token) {
+      headers.set('Authorization', token.startsWith('Bearer ') ? token : `Bearer ${token}`)
+    }
   }
 
-  if (body !== undefined && !(body instanceof FormData) && !(body instanceof Blob)) {
-    if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+  if (
+    body !== undefined &&
+    !(body instanceof FormData) &&
+    !(body instanceof Blob) &&
+    !headers.has('Content-Type')
+  ) {
+    headers.set('Content-Type', 'application/json')
   }
 
   return headers
 }
 
-async function parseResponse<T>(response: Response, rawResponse?: boolean): Promise<T> {
-  if (rawResponse) return response as unknown as T
-
-  const contentType = response.headers.get('content-type') || ''
-
-  if (response.status === 401) {
-    localStorage.removeItem('token')
-    localStorage.removeItem('role')
-    localStorage.removeItem('username')
-    localStorage.removeItem('userInfo')
-    localStorage.removeItem('userId')
-    if (window.location.pathname !== '/login') window.location.href = '/login'
-    throw new Error('Unauthorized. Please login again.')
-  }
-
-  if (!response.ok) {
-    let message = `HTTP ${response.status}`
-    try {
-      if (contentType.includes('application/json')) {
-        const err = await response.json()
-        message = err?.message || err?.error || message
-      } else {
-        const text = await response.text()
-        if (text) message = text
-      }
-    } catch {
-      // ignore parse error
+async function parseErrorMessage(response: Response): Promise<string> {
+  try {
+    const contentType = response.headers.get('content-type') || ''
+    if (contentType.includes('application/json')) {
+      const json = await response.json()
+      return json?.message || json?.error || JSON.stringify(json)
     }
-    throw new Error(message)
-  }
 
-  if (contentType.includes('application/json')) {
-    return (await response.json()) as T
+    const text = await response.text()
+    return text || response.statusText || `HTTP ${response.status}`
+  } catch {
+    return response.statusText || `HTTP ${response.status}`
   }
-
-  return (await response.blob()) as T
 }
 
 export async function request<T = any>(
@@ -142,8 +142,40 @@ export async function request<T = any>(
           : JSON.stringify(body),
   })
 
-  return parseResponse<T>(response, rawResponse)
+  if (rawResponse) return response as unknown as T
+
+  if (response.status === 401) {
+    clearLoginState()
+    if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+      window.location.href = '/login'
+    }
+    throw new Error('Token expired or unauthorized. Please login again.')
+  }
+
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response))
+  }
+
+  const contentType = response.headers.get('content-type') || ''
+
+  if (contentType.includes('application/json')) {
+    return (await response.json()) as T
+  }
+
+  return (await response.blob()) as T
 }
+
+export function unwrap<T>(response: ApiResponse<T>): T {
+  const code = Number(response?.code)
+
+  if (!Number.isNaN(code) && code !== 200 && code !== 201) {
+    throw new Error(response?.message || 'Request failed')
+  }
+
+  return response?.data
+}
+
+export const unwrapNullable = unwrap
 
 export async function get<T = any>(
   url: string,
@@ -184,26 +216,15 @@ export async function upload<T = any>(
   return request<ApiResponse<T>>('POST', url, { ...options, body: formData })
 }
 
+// Backward-compatible name used by older files.
+export const postForm = upload
+
 export async function downloadBlob(
   url: string,
   params?: QueryParams,
   options: RequestOptions = {},
 ): Promise<Blob> {
   return request<Blob>('GET', url, { ...options, params })
-}
-
-export function unwrap<T>(response: ApiResponse<T>): T {
-  if (response.code !== 200 && response.code !== 201) {
-    throw new Error(response.message || 'Request failed')
-  }
-  return response.data
-}
-
-export function unwrapNullable<T>(response: ApiResponse<T>): T {
-  if (response.code !== 200 && response.code !== 201) {
-    throw new Error(response.message || 'Request failed')
-  }
-  return response.data
 }
 
 export function saveBlob(blob: Blob, filename: string): void {
@@ -218,11 +239,11 @@ export function saveBlob(blob: Blob, filename: string): void {
 }
 
 export function getCurrentUserId(): string {
-  const userInfoRaw = localStorage.getItem('userInfo')
-  if (!userInfoRaw) return localStorage.getItem('userId') || ''
+  const raw = localStorage.getItem('userInfo')
+  if (!raw) return localStorage.getItem('userId') || ''
 
   try {
-    const parsed = JSON.parse(userInfoRaw)
+    const parsed = JSON.parse(raw)
     return parsed?.user?.id || parsed?.id || parsed?.userId || localStorage.getItem('userId') || ''
   } catch {
     return localStorage.getItem('userId') || ''
@@ -230,11 +251,11 @@ export function getCurrentUserId(): string {
 }
 
 export function getCurrentUsername(): string {
-  const userInfoRaw = localStorage.getItem('userInfo')
-  if (!userInfoRaw) return localStorage.getItem('username') || ''
+  const raw = localStorage.getItem('userInfo')
+  if (!raw) return localStorage.getItem('username') || ''
 
   try {
-    const parsed = JSON.parse(userInfoRaw)
+    const parsed = JSON.parse(raw)
     return (
       parsed?.user?.username ||
       parsed?.username ||

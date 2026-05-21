@@ -3,19 +3,24 @@ import {
   addStudentToGroup,
   changeGroupMentor,
   exportConsultantRecords,
+  exportGroupRecords,
+  exportGroupRecordsForConsultant,
   exportRecordsByFilter,
   getGroup,
   getGroupMembers,
   importCoordinators,
   importMcpAllocation,
+  listConsultantCases,
   listGroups,
   removeStudentFromGroup,
   searchGroup,
+  searchGroups,
+  type CaseItem,
   type ConsultantExportFilter,
   type GroupInfo,
   type GroupMember,
 } from './mentoring'
-import { getOrgTree, searchMentors, type MentorInfo } from './org'
+import { getOrgTree, isOrgType, searchMentors, type MentorInfo, type OrgUnit } from './org'
 
 export {
   addStudentToGroup,
@@ -30,10 +35,22 @@ export {
   listGroups,
   removeStudentFromGroup,
   searchGroup,
+  searchGroups,
   searchMentors,
 }
 
-export type { ConsultantExportFilter, GroupInfo, GroupMember, MentorInfo }
+export type { CaseItem, ConsultantExportFilter, GroupInfo, GroupMember, MentorInfo }
+
+export type GroupSummary = GroupInfo
+
+export interface DepartmentSummary {
+  departmentId: string
+  departmentName: string
+  faculty: string
+  coordinatorName: string | null
+  coordinatorEmail: string | null
+  raw?: any
+}
 
 export interface CoordinatorPayload {
   coordinatorId?: string
@@ -45,6 +62,20 @@ export interface CoordinatorPayload {
   [key: string]: any
 }
 
+export interface CoordinatorDesignation extends CoordinatorPayload {
+  coordinatorName?: string
+  departmentId?: string
+}
+
+export interface ExportFilter extends ConsultantExportFilter {
+  academicYears?: string[]
+  groupId?: string
+}
+
+export async function listAllMentors(keyword?: string): Promise<MentorInfo[]> {
+  return searchMentors(keyword || '')
+}
+
 export async function importStudentNameList(file: File, facultyOrgId?: string): Promise<any> {
   return importMcpAllocation(file, facultyOrgId)
 }
@@ -53,12 +84,30 @@ export async function importCoordinatorList(file: File): Promise<any> {
   return importCoordinators(file)
 }
 
-// 你之前确认应使用 units，不是 departments；但新版 OpenAPI 路径里仍未列出该接口。
-// 这里按真实 units 路径接入，联调若 404 则说明后端文档/接口还没同步。
+export async function listDepartments(): Promise<DepartmentSummary[]> {
+  const units = await getOrgTree()
+  return buildDepartments(units)
+}
+
+export async function getDepartmentDetail(deptId: string): Promise<DepartmentSummary | null> {
+  const departments = await listDepartments()
+  return departments.find((item) => item.departmentId === deptId) || null
+}
+
 export async function designateCoordinator(
-  unitId: string,
-  payload: CoordinatorPayload,
+  unitIdOrPayload: string | CoordinatorDesignation,
+  maybePayload?: CoordinatorPayload,
 ): Promise<any> {
+  const unitId =
+    typeof unitIdOrPayload === 'string'
+      ? unitIdOrPayload
+      : unitIdOrPayload.departmentId || unitIdOrPayload.department
+
+  if (!unitId) throw new Error('departmentId/unitId is required')
+
+  const payload = typeof unitIdOrPayload === 'string' ? maybePayload || {} : unitIdOrPayload
+
+  // This endpoint is not listed in the uploaded OpenAPI, but the current UI needs it.
   const res = await post<any>(`/api/mentoring/units/${encodeURIComponent(unitId)}/coordinator`, payload)
   return unwrap(res)
 }
@@ -76,72 +125,41 @@ export async function removeCoordinator(unitId: string): Promise<void> {
   unwrap(res)
 }
 
-
-// ==================== Backward compatibility for old consultant pages ====================
-
-export type GroupSummary = GroupInfo
-
-export interface DepartmentSummary {
-  departmentId: string
-  departmentName: string
-  faculty: string
-  coordinatorName: string | null
-  coordinatorEmail: string | null
-  raw?: any
+export async function listCasesForConsultant(): Promise<CaseItem[]> {
+  return listConsultantCases()
 }
 
-export interface CoordinatorDesignation {
-  coordinatorName?: string
-  email?: string
-  department?: string
-  departmentId?: string
-  coordinatorId?: string
-  userId?: string
-  username?: string
-  realName?: string
-  [key: string]: any
-}
-
-export interface ExportFilter extends ConsultantExportFilter {
-  academicYears?: string[]
-  groupId?: string
-}
-
-export async function listDepartments(): Promise<DepartmentSummary[]> {
-  const units = await getOrgTree()
-  return buildDepartments(units as any[])
-}
-
-export async function getDepartmentDetail(deptId: string): Promise<DepartmentSummary | null> {
-  const departments = await listDepartments()
-  return departments.find((item) => item.departmentId === deptId) || null
+export async function closeConsultantCase(caseId: string): Promise<any> {
+  const { closeCase } = await import('./mentoring')
+  return closeCase(caseId)
 }
 
 export async function exportRecordsByGroup(groupId: string): Promise<Blob> {
-  return exportRecordsByFilter({ groupId } as any)
+  return exportGroupRecords(groupId)
 }
 
 export async function exportFcRecordsByGroup(groupId: string): Promise<Blob> {
-  return exportConsultantRecords({ groupId } as any)
+  return exportGroupRecordsForConsultant(groupId)
 }
 
-function buildDepartments(units: any[]): DepartmentSummary[] {
-  const faculties = units.filter((u) => sameType(u, 'FACULTY'))
-  const departments = units.filter((u) => sameType(u, 'DEPARTMENT') || sameType(u, 'DEPT'))
+function buildDepartments(units: OrgUnit[]): DepartmentSummary[] {
+  const faculties = units.filter((unit) => isOrgType(unit, 'FACULTY'))
+  const departments = units.filter((unit) => isOrgType(unit, 'DEPARTMENT') || isOrgType(unit, 'DEPT'))
 
   return departments.map((dept) => {
-    const faculty = faculties.find((f) => f.id === dept.parentId)
+    const faculty = faculties.find((item) => item.id === dept.parentId)
+
     return {
-      departmentId: String(dept.id || ''),
-      departmentName: String(dept.name || ''),
+      departmentId: dept.id,
+      departmentName: dept.name,
       faculty: faculty?.name || '',
-      coordinatorName: dept.coordinatorName || dept.coordinator?.realName || dept.coordinator?.username || null,
+      coordinatorName:
+        dept.coordinatorName ||
+        dept.coordinator?.realName ||
+        dept.coordinator?.username ||
+        null,
       coordinatorEmail: dept.coordinatorEmail || dept.coordinator?.email || null,
       raw: dept,
     }
   })
-}
-
-function sameType(unit: any, type: string): boolean {
-  return String(unit?.type || '').toUpperCase() === type.toUpperCase()
 }
