@@ -1,19 +1,23 @@
 /**
- * Communication API.
+ * src/api/communication.ts
  *
- * Backend endpoints from OpenAPI:
- *   POST /api/message/send
- *   GET  /api/message/list
- *   GET  /api/message/unread-count
- *   GET  /api/message/{messageId}
- *
- * 注意：
- * OpenAPI 目前只给了「普通消息」接口。
- * Interview arrangement / Forward case 暂时没有独立后端接口，所以这里用普通消息接口承载发送动作；
- * 列表类函数返回空数组，避免页面崩溃，等后端补接口后只需要改本文件。
+ * Communication API - normal messages, appointment wrappers, case wrappers.
  */
 
 import { get, post } from './request'
+import {
+  createAppointmentSlots,
+  setAppointmentVenue,
+  confirmAppointmentSlot,
+  deleteAppointmentSlot,
+  getAppointmentSlotsByMentor,
+  forwardCaseToCoordinatorApi,
+  getMySubmittedCases,
+} from './mentoring'
+import type {
+  AppointmentSlot,
+  CaseItem,
+} from './mentoring'
 
 // ==================== Types ====================
 
@@ -27,11 +31,16 @@ export interface MessageEntity {
   timestamp: string
   isRead: boolean
   messageType: 'normal' | 'interview' | 'case'
+  raw?: any
 }
 
 export interface InterviewSlot {
+  slotId?: string
   date: string
   time: string
+  endTime?: string
+  venue?: string | null
+  status?: string
 }
 
 export interface InterviewInvitation {
@@ -44,6 +53,7 @@ export interface InterviewInvitation {
   chosenSlot?: InterviewSlot
   venue?: string
   status: 'pending' | 'student_confirmed' | 'venue_confirmed' | 'cancelled'
+  raw?: any
 }
 
 export interface CaseForwardPayload {
@@ -52,41 +62,10 @@ export interface CaseForwardPayload {
   caseDescription: string
 }
 
-interface RawMessage {
-  id?: string
-  messageId?: string
-  senderId?: string
-  senderName?: string
-  receiverId?: string
-  receiverName?: string
-  content?: string
-  createTime?: string
-  timestamp?: string
-  isRead?: boolean
-  messageType?: string
-  type?: string
-}
-
-function normalizeMessage(raw: RawMessage): MessageEntity {
-  const messageType = String(raw.messageType ?? raw.type ?? 'normal') as MessageEntity['messageType']
-
-  return {
-    messageId: String(raw.messageId ?? raw.id ?? ''),
-    senderId: String(raw.senderId ?? ''),
-    senderName: String(raw.senderName ?? raw.senderId ?? ''),
-    receiverId: String(raw.receiverId ?? ''),
-    receiverName: raw.receiverName,
-    content: String(raw.content ?? ''),
-    timestamp: String(raw.timestamp ?? raw.createTime ?? ''),
-    isRead: Boolean(raw.isRead ?? false),
-    messageType: ['normal', 'interview', 'case'].includes(messageType) ? messageType : 'normal',
-  }
-}
-
-// ==================== Normal messages ====================
+// ==================== Normal Messages ====================
 
 export async function listMyMessages(): Promise<MessageEntity[]> {
-  const res = await get<RawMessage[]>('/message/list')
+  const res = await get<any[]>('/api/message/list')
 
   if (res.code !== 200) {
     throw new Error(res.message || 'Failed to load messages')
@@ -95,46 +74,21 @@ export async function listMyMessages(): Promise<MessageEntity[]> {
   return (res.data || []).map(normalizeMessage)
 }
 
-export async function getUnreadMessageCount(): Promise<number> {
-  const res = await get<number>('/message/unread-count')
-
-  if (res.code !== 200) {
-    throw new Error(res.message || 'Failed to get unread count')
-  }
-
-  return Number(res.data || 0)
-}
-
-export async function getMessageDetail(messageId: string): Promise<MessageEntity> {
-  const id = String(messageId || '').trim()
-  if (!id) throw new Error('messageId is required')
-
-  const res = await get<RawMessage>(`/message/${encodeURIComponent(id)}`, {
-    messageId: id,
-  })
-
-  if (res.code !== 200 || !res.data) {
-    throw new Error(res.message || 'Failed to load message')
-  }
-
-  return normalizeMessage(res.data)
-}
-
 export async function sendNormalMessage(
   receiverIds: string[],
   content: string,
 ): Promise<void> {
-  const text = String(content || '').trim()
-  if (!text) throw new Error('Message content cannot be empty.')
+  if (!content || !content.trim()) {
+    throw new Error('Message content cannot be empty.')
+  }
 
-  const recipientIds = (receiverIds || []).map((id) => String(id).trim()).filter(Boolean)
-  if (recipientIds.length === 0) {
+  if (!receiverIds || receiverIds.length === 0) {
     throw new Error('Please select at least one receiver.')
   }
 
-  const res = await post<null>('/message/send', {
-    recipientIds,
-    content: text,
+  const res = await post<null>('/api/message/send', {
+    recipientIds: receiverIds,
+    content: content.trim(),
   })
 
   if (res.code !== 200) {
@@ -142,17 +96,52 @@ export async function sendNormalMessage(
   }
 }
 
-// ==================== Interview arrangements ====================
+export async function getUnreadMessageCount(): Promise<number> {
+  const res = await get<any>('/api/message/unread-count')
 
-/**
- * 后端暂未提供独立预约列表接口。
- */
-export async function getMyInvitations(): Promise<InterviewInvitation[]> {
-  return []
+  if (res.code !== 200) {
+    throw new Error(res.message || 'Failed to get unread count')
+  }
+
+  if (typeof res.data === 'number') return res.data
+  if (typeof res.data?.count === 'number') return res.data.count
+  if (typeof res.data?.unreadCount === 'number') return res.data.unreadCount
+
+  return 0
+}
+
+export async function getMessageDetail(messageId: string): Promise<MessageEntity> {
+  const mid = String(messageId || '').trim()
+  if (!mid) throw new Error('messageId is required')
+
+  const res = await get<any>(`/api/message/${encodeURIComponent(mid)}`, {
+    messageId: mid,
+  })
+
+  if (res.code !== 200 || !res.data) {
+    throw new Error(res.message || 'Message not found')
+  }
+
+  return normalizeMessage(res.data)
+}
+
+// ==================== Interview Arrangements ====================
+
+function missingEndpoint(name: string): never {
+  throw new Error(`${name}: backend endpoint is not provided in current OpenAPI. The function is kept here for future wiring.`)
 }
 
 /**
- * 暂时通过普通消息发给学生。
+ * There is no "GET my invitations / my slots" endpoint yet.
+ * Kept for pages that already call this function.
+ */
+export async function getMyInvitations(): Promise<InterviewInvitation[]> {
+  return missingEndpoint('getMyInvitations')
+}
+
+/**
+ * Old UI name kept.
+ * New backend model creates mentor slots by date + startTimes, not per-student invitation.
  */
 export async function sendInterviewInvitation(
   studentId: string,
@@ -161,39 +150,63 @@ export async function sendInterviewInvitation(
   if (!studentId) throw new Error('Please select a student.')
   if (!slots || slots.length === 0) throw new Error('Please add at least one time slot.')
 
-  const slotText = slots.map((s) => `${s.date} ${s.time}`).join(', ')
-  await sendNormalMessage(
-    [studentId],
-    `[Interview Arrangement] Please choose one of these time slots: ${slotText}`,
-  )
+  const grouped = new Map<string, string[]>()
+
+  for (const slot of slots) {
+    if (!slot.date) throw new Error('Slot date is required.')
+    if (!slot.time) throw new Error('Slot time is required.')
+
+    const times = grouped.get(slot.date) || []
+    times.push(slot.time)
+    grouped.set(slot.date, times)
+  }
+
+  for (const [slotDate, startTimes] of grouped) {
+    await createAppointmentSlots({ slotDate, startTimes })
+  }
 }
 
 /**
- * 后端暂未提供确认 slot 接口；保留函数名避免页面编译报错。
+ * Old UI name kept. Here invitationId is treated as slotId.
  */
 export async function studentConfirmSlot(
   invitationId: string,
-  slot: InterviewSlot,
+  slot?: InterviewSlot,
 ): Promise<void> {
-  if (!invitationId) throw new Error('Invitation ID is required.')
-  if (!slot?.date || !slot?.time) throw new Error('Slot is required.')
+  const slotId = String(slot?.slotId || invitationId || '').trim()
+  if (!slotId) throw new Error('slotId is required.')
+
+  await confirmAppointmentSlot(slotId)
 }
 
 /**
- * 后端暂未提供确认 venue 接口；保留函数名避免页面编译报错。
+ * Old UI name kept. Here invitationId is treated as slotId.
  */
 export async function mentorConfirmVenue(
   invitationId: string,
   venue: string,
 ): Promise<void> {
-  if (!invitationId) throw new Error('Invitation ID is required.')
+  const slotId = String(invitationId || '').trim()
+  if (!slotId) throw new Error('slotId is required.')
   if (!venue || !venue.trim()) throw new Error('Venue cannot be empty.')
+
+  await setAppointmentVenue(slotId, venue)
 }
 
-// ==================== Forward cases ====================
+export async function cancelAppointmentSlot(slotId: string): Promise<void> {
+  await deleteAppointmentSlot(slotId)
+}
+
+export async function listMentorAvailableSlots(
+  mentorId: string,
+): Promise<AppointmentSlot[]> {
+  return getAppointmentSlotsByMentor(mentorId)
+}
+
+// ==================== Forward Cases ====================
 
 /**
- * 后端暂未提供 coordinator case inbox 接口。
+ * Missing: coordinator-side inbox endpoint.
  */
 export async function listForwardedCasesForCoordinator(): Promise<
   Array<{
@@ -205,12 +218,9 @@ export async function listForwardedCasesForCoordinator(): Promise<
     status: string
   }>
 > {
-  return []
+  return missingEndpoint('listForwardedCasesForCoordinator')
 }
 
-/**
- * 暂时通过普通消息发送 special case 给 coordinator。
- */
 export async function forwardCaseToCoordinator(
   payload: CaseForwardPayload,
 ): Promise<void> {
@@ -220,14 +230,15 @@ export async function forwardCaseToCoordinator(
     throw new Error('Case description cannot be empty.')
   }
 
-  await sendNormalMessage(
-    [payload.forwardToId],
-    `[Special Case] Student: ${payload.studentId}\n${payload.caseDescription.trim()}`,
-  )
+  await forwardCaseToCoordinatorApi({
+    studentId: payload.studentId,
+    targetCoordinatorId: payload.forwardToId,
+    description: payload.caseDescription,
+  })
 }
 
 /**
- * 暂时通过普通消息把 case 转给 consultant。
+ * Missing: coordinator -> faculty consultant forwarding endpoint.
  */
 export async function forwardCaseToConsultant(payload: {
   caseId: string
@@ -236,8 +247,32 @@ export async function forwardCaseToConsultant(payload: {
   if (!payload.caseId) throw new Error('Case ID is required.')
   if (!payload.consultantId) throw new Error('Please select a faculty consultant.')
 
-  await sendNormalMessage(
-    [payload.consultantId],
-    `[Forwarded Special Case] Case ID: ${payload.caseId}`,
-  )
+  return missingEndpoint('forwardCaseToConsultant')
+}
+
+export async function listMyForwardedCases(): Promise<CaseItem[]> {
+  return getMySubmittedCases()
+}
+
+// ==================== Helpers ====================
+
+function normalizeMessage(raw: any): MessageEntity {
+  const messageId = raw.messageId ?? raw.id ?? ''
+  const senderId = raw.senderId ?? ''
+  const receiverId = raw.receiverId ?? raw.recipientId ?? ''
+  const timestamp = raw.timestamp ?? raw.createTime ?? raw.createdAt ?? ''
+  const content = raw.content ?? ''
+
+  return {
+    messageId,
+    senderId,
+    senderName: raw.senderName ?? senderId,
+    receiverId,
+    receiverName: raw.receiverName ?? raw.recipientName,
+    content,
+    timestamp,
+    isRead: Boolean(raw.isRead ?? raw.read ?? false),
+    messageType: raw.messageType ?? raw.type ?? 'normal',
+    raw,
+  }
 }

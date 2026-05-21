@@ -1,21 +1,23 @@
 /**
- * HTTP request utility with JWT authentication.
+ * src/api/request.ts
  *
- * 使用方式：
- *   get('/user/login', { username, password })  -> /api/user/login?username=...
+ * Unified HTTP request utility.
  *
- * .env.development 推荐：
+ * Recommended .env.development:
+ *   VITE_API_BASE_URL=http://8.134.126.87:8080
+ *
+ * It also supports:
  *   VITE_API_BASE_URL=http://8.134.126.87:8080/api
- *
- * 如果你已经在 vite.config.ts 里代理 /api 到后端，也可以不配这个环境变量。
+ * because buildUrl() will avoid duplicated /api.
  */
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/+$/, '')
+const RAW_API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
 
 export interface ApiResponse<T = any> {
   code: number
   message: string
   data: T
+  [key: string]: any
 }
 
 export type QueryValue =
@@ -24,68 +26,116 @@ export type QueryValue =
   | boolean
   | null
   | undefined
-  | Array<string | number | boolean>
+  | Array<string | number | boolean | null | undefined>
 
 export type QueryParams = Record<string, QueryValue>
 
-export interface RequestOptions extends RequestInit {
-  params?: QueryParams
+interface RequestOptions extends RequestInit {
   skipAuth?: boolean
 }
 
-function buildUrl(url: string, params?: QueryParams): string {
-  const path = url.startsWith('/') ? url : `/${url}`
-  const fullUrl = /^https?:\/\//i.test(url) ? url : `${API_BASE}${path}`
+function buildUrl(url: string): string {
+  if (/^https?:\/\//i.test(url)) return url
 
-  if (!params) return fullUrl
+  let path = url.startsWith('/') ? url : `/${url}`
 
-  const search = new URLSearchParams()
-  for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === null || value === '') continue
-
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        search.append(key, String(item))
-      }
-    } else {
-      search.append(key, String(value))
-    }
+  // Allow either backend root "...:8080" or api root "...:8080/api".
+  if (RAW_API_BASE.endsWith('/api') && path.startsWith('/api/')) {
+    path = path.replace(/^\/api/, '')
   }
 
-  const query = search.toString()
-  if (!query) return fullUrl
+  return RAW_API_BASE ? `${RAW_API_BASE}${path}` : path
+}
 
-  return `${fullUrl}${fullUrl.includes('?') ? '&' : '?'}${query}`
+export function buildQuery(params?: QueryParams): string {
+  if (!params) return ''
+
+  const searchParams = new URLSearchParams()
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return
+
+    if (Array.isArray(value)) {
+      value.forEach((item) => {
+        if (item !== undefined && item !== null && item !== '') {
+          searchParams.append(key, String(item))
+        }
+      })
+      return
+    }
+
+    searchParams.append(key, String(value))
+  })
+
+  const query = searchParams.toString()
+  return query ? `?${query}` : ''
 }
 
 function getToken(): string | null {
-  return localStorage.getItem('token')
+  const token = localStorage.getItem('token')
+  if (!token) return null
+
+  return token.startsWith('Bearer ') ? token : `Bearer ${token}`
 }
 
-function redirectToLogin() {
-  localStorage.removeItem('token')
-  localStorage.removeItem('role')
-  localStorage.removeItem('userInfo')
-  localStorage.removeItem('username')
-  window.location.href = '/login'
+function buildHeaders(options?: RequestOptions): Headers {
+  const headers = new Headers(options?.headers)
+
+  if (!(options?.body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+
+  if (!headers.has('Accept')) {
+    headers.set('Accept', 'application/json')
+  }
+
+  if (!options?.skipAuth) {
+    const token = getToken()
+    if (token) headers.set('Authorization', token)
+  }
+
+  return headers
 }
 
-async function readResponseBody(res: Response): Promise<any> {
-  const contentType = res.headers.get('content-type') || ''
+async function parseJsonResponse<T>(response: Response): Promise<ApiResponse<T>> {
+  const contentType = response.headers.get('content-type') || ''
+  const text = await response.text()
 
-  if (res.status === 204) {
-    return { code: 200, message: 'success', data: null }
+  let body: any = null
+  if (text) {
+    if (contentType.includes('application/json')) {
+      try {
+        body = JSON.parse(text)
+      } catch {
+        throw new Error(text || `Invalid JSON response: ${response.status}`)
+      }
+    } else {
+      body = text
+    }
   }
 
-  if (contentType.includes('application/json')) {
-    return await res.json()
+  if (!response.ok) {
+    const message =
+      typeof body === 'object' && body
+        ? body.message || body.error || `HTTP ${response.status}`
+        : body || `HTTP ${response.status}`
+
+    throw new Error(message)
   }
 
-  const text = await res.text()
+  if (
+    body &&
+    typeof body === 'object' &&
+    Object.prototype.hasOwnProperty.call(body, 'code') &&
+    Object.prototype.hasOwnProperty.call(body, 'data')
+  ) {
+    return body as ApiResponse<T>
+  }
+
   return {
-    code: res.ok ? 200 : res.status,
-    message: text || res.statusText,
-    data: text,
+    code: response.status,
+    message: response.statusText || 'success',
+    data: body as T,
   }
 }
 
@@ -93,144 +143,140 @@ export async function request<T = any>(
   url: string,
   options: RequestOptions = {},
 ): Promise<ApiResponse<T>> {
-  const { params, skipAuth, ...fetchOptions } = options
+  const finalUrl = buildUrl(url)
+  const headers = buildHeaders(options)
 
-  const body = fetchOptions.body
-  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData
-
-  const headers = new Headers(fetchOptions.headers || {})
-
-  if (!headers.has('Accept')) {
-    headers.set('Accept', 'application/json')
-  }
-
-  if (!isFormData && body !== undefined && !headers.has('Content-Type')) {
-    headers.set('Content-Type', 'application/json')
-  }
-
-  const token = getToken()
-  if (!skipAuth && token && !headers.has('Authorization')) {
-    headers.set('Authorization', `Bearer ${token}`)
-  }
-
-  let finalBody = body
-  if (
-    body !== undefined &&
-    body !== null &&
-    !isFormData &&
-    typeof body !== 'string' &&
-    !(body instanceof Blob) &&
-    !(body instanceof ArrayBuffer)
-  ) {
-    finalBody = JSON.stringify(body)
-  }
-
-  const res = await fetch(buildUrl(url, params), {
-    ...fetchOptions,
+  const response = await fetch(finalUrl, {
+    ...options,
     headers,
-    body: finalBody,
   })
 
-  if (res.status === 401) {
-    redirectToLogin()
-    throw new Error('Token expired, please login again')
-  }
-
-  const payload = await readResponseBody(res)
-
-  if (!res.ok) {
-    const message = payload?.message || payload?.data || res.statusText
-    throw new Error(`HTTP ${res.status}: ${message}`)
-  }
-
-  return payload as ApiResponse<T>
+  return parseJsonResponse<T>(response)
 }
 
-export function get<T = any>(
+export async function get<T = any>(
   url: string,
   params?: QueryParams,
+  options: RequestOptions = {},
 ): Promise<ApiResponse<T>> {
-  return request<T>(url, {
+  return request<T>(`${url}${buildQuery(params)}`, {
+    ...options,
     method: 'GET',
-    params,
   })
 }
 
-export function post<T = any>(
+export async function post<T = any>(
   url: string,
   body?: any,
-  params?: QueryParams,
+  options: RequestOptions = {},
 ): Promise<ApiResponse<T>> {
   return request<T>(url, {
+    ...options,
     method: 'POST',
-    params,
-    body,
+    body: body === undefined ? undefined : JSON.stringify(body),
   })
 }
 
-export function put<T = any>(
+export async function put<T = any>(
   url: string,
   body?: any,
-  params?: QueryParams,
+  options: RequestOptions = {},
 ): Promise<ApiResponse<T>> {
   return request<T>(url, {
+    ...options,
     method: 'PUT',
-    params,
-    body,
+    body: body === undefined ? undefined : JSON.stringify(body),
   })
 }
 
-export function del<T = any>(
+export async function del<T = any>(
   url: string,
   params?: QueryParams,
+  options: RequestOptions = {},
 ): Promise<ApiResponse<T>> {
-  return request<T>(url, {
+  return request<T>(`${url}${buildQuery(params)}`, {
+    ...options,
     method: 'DELETE',
-    params,
   })
 }
 
-export function upload<T = any>(
+export async function postForm<T = any>(
   url: string,
   formData: FormData,
-  params?: QueryParams,
+  options: RequestOptions = {},
 ): Promise<ApiResponse<T>> {
+  const headers = new Headers(options.headers)
+  headers.delete('Content-Type')
+
   return request<T>(url, {
+    ...options,
     method: 'POST',
-    params,
+    headers,
     body: formData,
   })
 }
 
-export async function requestBlob(
+export async function getBlob(
   url: string,
+  params?: QueryParams,
   options: RequestOptions = {},
 ): Promise<Blob> {
-  const { params, skipAuth, ...fetchOptions } = options
+  const finalUrl = buildUrl(`${url}${buildQuery(params)}`)
+  const blobHeaders = new Headers(options.headers)
+  blobHeaders.set(
+    'Accept',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/octet-stream,application/json',
+  )
+  const headers = buildHeaders({
+    ...options,
+    headers: blobHeaders,
+  })
 
-  const headers = new Headers(fetchOptions.headers || {})
-  const token = getToken()
-
-  if (!skipAuth && token && !headers.has('Authorization')) {
-    headers.set('Authorization', `Bearer ${token}`)
-  }
-
-  const res = await fetch(buildUrl(url, params), {
-    ...fetchOptions,
+  const response = await fetch(finalUrl, {
+    ...options,
+    method: 'GET',
     headers,
   })
 
-  if (res.status === 401) {
-    redirectToLogin()
-    throw new Error('Token expired, please login again')
+  const contentType = response.headers.get('content-type') || ''
+
+  if (!response.ok) {
+    if (contentType.includes('application/json')) {
+      const body = await response.json().catch(() => null)
+      throw new Error(body?.message || body?.error || `HTTP ${response.status}`)
+    }
+
+    const text = await response.text().catch(() => '')
+    throw new Error(text || `HTTP ${response.status}`)
   }
 
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`HTTP ${res.status}: ${text || res.statusText}`)
+  if (contentType.includes('application/json')) {
+    const body = await response.json().catch(() => null)
+    if (body?.code && body.code !== 200) {
+      throw new Error(body?.message || 'Download failed')
+    }
+
+    // Some current export endpoints are documented as JSON data:null.
+    // Keep a Blob return type so pages can keep their download flow unchanged.
+    return new Blob([JSON.stringify(body ?? {}, null, 2)], {
+      type: 'application/json',
+    })
   }
 
-  return await res.blob()
+  return await response.blob()
 }
 
-export { buildUrl }
+export function downloadBlob(blob: Blob, filename: string): void {
+  const objectUrl = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+
+  a.href = objectUrl
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+
+  URL.revokeObjectURL(objectUrl)
+}
+
+export default request

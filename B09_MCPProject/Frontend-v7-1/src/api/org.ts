@@ -1,20 +1,12 @@
 /**
- * Organization API - Mentor & Student search.
+ * src/api/org.ts
  *
- * Backend endpoints from OpenAPI:
- *   GET /api/org/mentors/{orgUnitId}?keyword=xxx
- *   GET /api/org/mentors/search?keyword=xxx
- *   GET /api/org/students/{orgId}?keyword=xxx
- *   GET /api/org/students/search?keyword=xxx
- *   GET /api/org/student/{studentId}
- *   GET /api/org/my-dept/member/{userId}
- *   GET /api/org/my-dept/mentors?keyword=xxx
- *   GET /api/org/admin/units
+ * Organization API - mentors, students, organization units.
  */
 
-import { get } from './request'
+import { get, post, put, del, postForm } from './request'
 
-// ---------- Types ----------
+// ==================== Types ====================
 
 export interface MentorFromApi {
   mentorId: string
@@ -26,6 +18,8 @@ export interface MentorFromApi {
   groupId?: string | number | null
   groupIds?: Array<string | number> | string | null
   mcpGroupId?: string | number | null
+
+  [key: string]: any
 }
 
 export interface StudentFromApi {
@@ -38,70 +32,48 @@ export interface StudentFromApi {
   status?: string | number | null
   groupId?: string | null
   majorId?: string | null
+
+  [key: string]: any
 }
 
 export interface OrgUnit {
   id: string
   name: string
-  unitType?: number
-  type?: string
+  type: string
   parentId: string | null
   path?: string | null
   sortOrder?: number
   createTime?: string
+  [key: string]: any
 }
 
-// ---------- Normalizers ----------
-
-function normalizeMentor(raw: any): MentorFromApi {
-  return {
-    mentorId: String(raw?.mentorId ?? raw?.id ?? raw?.userId ?? ''),
-    mentorName: String(raw?.mentorName ?? raw?.realName ?? raw?.username ?? raw?.name ?? ''),
-    email: String(raw?.email ?? ''),
-    office: String(raw?.office ?? raw?.officeLocation ?? ''),
-    departmentName: String(raw?.departmentName ?? raw?.department ?? raw?.orgName ?? ''),
-    groupId: raw?.groupId ?? raw?.mcpGroupId ?? null,
-    groupIds: raw?.groupIds ?? null,
-    mcpGroupId: raw?.mcpGroupId ?? null,
-  }
+export interface CreateOrgUnitPayload {
+  name: string
+  type: 'FACULTY' | 'DEPARTMENT' | 'MAJOR' | 'GROUP' | string
+  parentId?: string | null
+  sortOrder?: number
 }
 
-function normalizeStudent(raw: any): StudentFromApi {
-  const id = raw?.id ?? raw?.studentId ?? raw?.userId ?? raw?.username ?? ''
-  return {
-    id,
-    username: String(raw?.username ?? raw?.userName ?? raw?.studentId ?? id),
-    realName: raw?.realName ?? raw?.name ?? raw?.studentName ?? null,
-    email: String(raw?.email ?? ''),
-    phone: raw?.phone ?? null,
-    status: raw?.status ?? null,
-    groupId: raw?.groupId ?? raw?.mcpGroupId ?? null,
-    majorId: raw?.majorId ?? raw?.major ?? raw?.majorName ?? null,
-  }
+export interface UpdateOrgUnitPayload {
+  name?: string
+  sortOrder?: number
+  parentId?: string | null
+  type?: string
 }
 
-function normalizeOrgUnit(raw: any): OrgUnit {
-  return {
-    id: String(raw?.id ?? ''),
-    name: String(raw?.name ?? ''),
-    type: raw?.type,
-    unitType: raw?.unitType,
-    parentId: raw?.parentId ?? null,
-    path: raw?.path ?? null,
-    sortOrder: raw?.sortOrder,
-    createTime: raw?.createTime,
-  }
-}
-
-// ---------- Mentor API ----------
+// ==================== Mentor API ====================
 
 export async function getMentorsByOrg(
   orgUnitId: string,
   keyword?: string,
 ): Promise<MentorFromApi[]> {
-  const res = await get<any[]>(`/org/mentors/${encodeURIComponent(orgUnitId)}`, {
-    keyword,
-  })
+  const oid = String(orgUnitId || '').trim()
+  if (!oid) return []
+
+  const res = await get<any[]>(
+    `/api/org/mentors/${encodeURIComponent(oid)}`,
+    { keyword },
+  )
 
   if (res.code !== 200) {
     throw new Error(res.message || 'Failed to get mentors')
@@ -110,11 +82,8 @@ export async function getMentorsByOrg(
   return (res.data || []).map(normalizeMentor)
 }
 
-/**
- * Faculty Consultant: global mentor search by name / email.
- */
 export async function searchAllMentors(keyword?: string): Promise<MentorFromApi[]> {
-  const res = await get<any[]>('/org/mentors/search', {
+  const res = await get<any[]>('/api/org/mentors/search', {
     keyword,
   })
 
@@ -125,12 +94,8 @@ export async function searchAllMentors(keyword?: string): Promise<MentorFromApi[
   return (res.data || []).map(normalizeMentor)
 }
 
-/**
- * Coordinator: search mentors in own department.
- * 后端根据 JWT 自动判断 coordinator 所在 Department。
- */
 export async function searchMyDeptMentors(keyword?: string): Promise<MentorFromApi[]> {
-  const res = await get<any[]>('/org/my-dept/mentors', {
+  const res = await get<any[]>('/api/org/my-dept/mentors', {
     keyword,
   })
 
@@ -141,28 +106,29 @@ export async function searchMyDeptMentors(keyword?: string): Promise<MentorFromA
   return (res.data || []).map(normalizeMentor)
 }
 
-// ---------- Student API ----------
+// ==================== Student API ====================
 
 export async function getStudentsByOrg(
   orgId: string,
   keyword?: string,
 ): Promise<StudentFromApi[]> {
-  const res = await get<any[]>(`/org/students/${encodeURIComponent(orgId)}`, {
-    keyword,
-  })
+  const oid = String(orgId || '').trim()
+  if (!oid) return []
+
+  const res = await get<any[]>(
+    `/api/org/students/${encodeURIComponent(oid)}`,
+    { keyword },
+  )
 
   if (res.code !== 200) {
     throw new Error(res.message || 'Failed to get students')
   }
 
-  return (res.data || []).map(normalizeStudent)
+  return (res.data || []).map((item) => normalizeStudent(item, item.studentId ?? item.id))
 }
 
-/**
- * Faculty Consultant: global student search.
- */
 export async function searchAllStudents(keyword?: string): Promise<StudentFromApi[]> {
-  const res = await get<any[]>('/org/students/search', {
+  const res = await get<any[]>('/api/org/students/search', {
     keyword,
   })
 
@@ -170,66 +136,185 @@ export async function searchAllStudents(keyword?: string): Promise<StudentFromAp
     throw new Error(res.message || 'Failed to search students')
   }
 
-  return (res.data || []).map(normalizeStudent)
+  return (res.data || []).map((item) => normalizeStudent(item, item.studentId ?? item.id))
 }
 
-/**
- * Exact query one student by Student ID.
- * Consultant 用这个；Mentor / Coordinator 不要直接用这个，避免越权。
- */
 export async function searchStudentById(studentId: string): Promise<StudentFromApi | null> {
   const sid = String(studentId || '').trim()
   if (!sid) return null
 
-  const res = await get<any>(`/org/student/${encodeURIComponent(sid)}`)
+  const res = await get<any>(`/api/org/student/${encodeURIComponent(sid)}`)
 
   if (res.code !== 200 || !res.data) {
     return null
   }
 
-  return normalizeStudent(res.data)
+  return normalizeStudent(res.data, sid)
 }
 
-/**
- * Coordinator: strictly query a member in own department by user id.
- */
 export async function getMyDeptMember(userId: string): Promise<StudentFromApi | null> {
   const uid = String(userId || '').trim()
   if (!uid) return null
 
-  const res = await get<any>(`/org/my-dept/member/${encodeURIComponent(uid)}`)
+  const res = await get<any>(`/api/org/my-dept/member/${encodeURIComponent(uid)}`)
 
   if (res.code !== 200 || !res.data) {
     return null
   }
 
-  return normalizeStudent(res.data)
+  return normalizeStudent(res.data, uid)
 }
 
-// ---------- Org Tree API ----------
+// ==================== Organization Unit API ====================
 
-/**
- * OpenAPI 当前正式可用的是 /api/org/admin/units。
- * 这里保留 getOrgUnits(unitType) 的前端旧接口名，内部走 admin units 并在前端过滤。
- */
-export async function getOrgUnits(unitType?: number | string): Promise<OrgUnit[]> {
-  const res = await get<any[]>('/org/admin/units')
+export async function getOrgUnits(): Promise<OrgUnit[]> {
+  const res = await get<any[]>('/api/org/admin/units')
 
   if (res.code !== 200) {
-    throw new Error(res.message || 'Failed to get org units')
+    throw new Error(res.message || 'Failed to get organization units')
   }
 
-  let units = (res.data || []).map(normalizeOrgUnit)
+  return (res.data || []).map(normalizeOrgUnit)
+}
 
-  if (unitType !== undefined) {
-    const wanted = String(unitType).toUpperCase()
-    units = units.filter((u) => {
-      return (
-        String(u.unitType ?? '').toUpperCase() === wanted ||
-        String(u.type ?? '').toUpperCase() === wanted
-      )
-    })
+export async function getPublicOrgUnits(): Promise<OrgUnit[]> {
+  const res = await get<any[]>('/api/org/units')
+
+  if (res.code !== 200) {
+    throw new Error(res.message || 'Failed to get organization tree')
   }
 
-  return units
+  return (res.data || []).map(normalizeOrgUnit)
+}
+
+export async function getOrgUnitById(id: string): Promise<OrgUnit | null> {
+  const uid = String(id || '').trim()
+  if (!uid) return null
+
+  const res = await get<any>(`/api/org/admin/units/${encodeURIComponent(uid)}`)
+
+  if (res.code !== 200 || !res.data) {
+    return null
+  }
+
+  return normalizeOrgUnit(res.data)
+}
+
+export async function getPublicOrgUnitById(unitId: string): Promise<OrgUnit | null> {
+  const uid = String(unitId || '').trim()
+  if (!uid) return null
+
+  const res = await get<any>(`/api/org/unit/${encodeURIComponent(uid)}`)
+
+  if (res.code !== 200 || !res.data) {
+    return null
+  }
+
+  return normalizeOrgUnit(res.data)
+}
+
+export async function createOrgUnit(payload: CreateOrgUnitPayload): Promise<any> {
+  const res = await post<any>('/api/org/admin/units', payload)
+
+  if (res.code !== 200) {
+    throw new Error(res.message || 'Failed to create organization unit')
+  }
+
+  return res.data
+}
+
+export async function updateOrgUnit(
+  id: string,
+  payload: UpdateOrgUnitPayload,
+): Promise<any> {
+  const uid = String(id || '').trim()
+  if (!uid) throw new Error('Organization unit id is required')
+
+  const res = await put<any>(`/api/org/admin/units/${encodeURIComponent(uid)}`, payload)
+
+  if (res.code !== 200) {
+    throw new Error(res.message || 'Failed to update organization unit')
+  }
+
+  return res.data
+}
+
+export async function deleteOrgUnit(id: string): Promise<void> {
+  const uid = String(id || '').trim()
+  if (!uid) throw new Error('Organization unit id is required')
+
+  const res = await del<null>(`/api/org/admin/units/${encodeURIComponent(uid)}`)
+
+  if (res.code !== 200) {
+    throw new Error(res.message || 'Failed to delete organization unit')
+  }
+}
+
+export async function importOrgUnitsFromExcel(file: File): Promise<any> {
+  if (!file || file.size === 0) {
+    throw new Error('Uploaded file is empty.')
+  }
+
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const res = await postForm<any>('/api/org/admin/units/import-excel', formData)
+
+  if (res.code !== 200) {
+    throw new Error(res.message || 'Failed to import organization units')
+  }
+
+  return res.data
+}
+
+// ==================== Helpers ====================
+
+function normalizeMentor(raw: any): MentorFromApi {
+  const mentorId = raw.mentorId ?? raw.id ?? raw.userId ?? ''
+  const mentorName =
+    raw.mentorName ?? raw.realName ?? raw.name ?? raw.username ?? String(mentorId)
+
+  return {
+    ...raw,
+    mentorId: String(mentorId),
+    mentorName: String(mentorName || ''),
+    email: raw.email ?? '',
+    office: raw.office ?? raw.location ?? '',
+    departmentName: raw.departmentName ?? raw.department ?? '',
+    groupId: raw.groupId ?? raw.mcpGroupId ?? null,
+  }
+}
+
+function normalizeStudent(raw: any, fallbackId: string): StudentFromApi {
+  const id = raw.id ?? raw.studentId ?? raw.userId ?? fallbackId
+  const username = raw.username ?? raw.userName ?? String(id)
+  const realName = raw.realName ?? raw.name ?? raw.studentName ?? null
+  const email = raw.email ?? ''
+  const phone = raw.phone ?? null
+  const status = raw.status ?? null
+  const groupId = raw.groupId ?? raw.mcpGroupId ?? null
+  const majorId = raw.majorId ?? raw.major ?? null
+
+  return {
+    ...raw,
+    id,
+    username,
+    realName,
+    email,
+    phone,
+    status,
+    groupId,
+    majorId,
+  }
+}
+
+function normalizeOrgUnit(raw: any): OrgUnit {
+  return {
+    ...raw,
+    id: String(raw.id ?? raw.unitId ?? raw.orgUnitId ?? ''),
+    name: raw.name ?? raw.unitName ?? '',
+    type: raw.type ?? raw.unitType ?? '',
+    parentId: raw.parentId ?? raw.parent_id ?? null,
+    sortOrder: raw.sortOrder ?? raw.sort ?? 0,
+  }
 }

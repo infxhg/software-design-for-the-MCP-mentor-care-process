@@ -1,37 +1,52 @@
 /**
- * Administrator API.
+ * src/api/admin.ts
  *
- * Backend endpoints from OpenAPI:
- *   GET    /api/org/admin/units
- *   POST   /api/org/admin/units
- *   GET    /api/org/admin/units/{id}
- *   PUT    /api/org/admin/units/{id}
- *   DELETE /api/org/admin/units/{id}
- *   POST   /api/org/admin/units/import-excel
- *
- * 说明：
- * OpenAPI 当前没有 Faculty Consultant 账号管理、Supporting Staff 账号管理的正式接口。
- * 本文件保留原前端函数名，账号管理函数会调用约定路径 /api/admin/...；
- * 如果后端还没做这些路径，页面会收到 404，需要后端补接口或你再改这里的路径。
+ * Administrator API - organization, faculty consultant, supporting staff.
  */
 
-import { get, post, put, del, upload } from './request'
+import { get, post, put } from './request'
+import {
+  getOrgUnits,
+  getOrgUnitById,
+  createOrgUnit,
+  updateOrgUnit,
+  deleteOrgUnit,
+  importOrgUnitsFromExcel,
+} from './org'
+import type { OrgUnit, CreateOrgUnitPayload } from './org'
 
 // ==================== Types ====================
 
 export interface ConsultantInfo {
   consultantId?: string
+  id?: string
+  username?: string
+  password?: string
   name: string
+  realName?: string
   email: string
-  faculty: string
+  phone?: string | null
+  faculty?: string
+  status?: number
+  raw?: any
+  [key: string]: any
 }
 
 export interface SupportingStaffInfo {
   staffId?: string
+  id?: string
+  username?: string
+  password?: string
   name: string
+  realName?: string
   accountId: string
+  email?: string
+  phone?: string | null
+  status?: number
   canViewLog: boolean
   canReplyFeedback: boolean
+  raw?: any
+  [key: string]: any
 }
 
 export interface OrgEntry {
@@ -40,311 +55,342 @@ export interface OrgEntry {
   major: string
 }
 
-export interface AdminOrgUnit {
-  id: string
-  name: string
-  type: 'FACULTY' | 'DEPARTMENT' | 'MAJOR' | string
-  parentId: string | null
-  path?: string | null
-  sortOrder?: number
-  createTime?: string
+// ==================== Missing Endpoint Helper ====================
+
+function missingEndpoint(name: string): never {
+  throw new Error(`${name}: backend endpoint is not provided in current OpenAPI. The function is kept here for future wiring.`)
 }
 
-export interface CreateOrgUnitPayload {
-  name: string
-  type: 'FACULTY' | 'DEPARTMENT' | 'MAJOR' | string
-  parentId?: string | null
-  sortOrder?: number
-}
-
-export interface UpdateOrgUnitPayload {
-  name?: string
-  sortOrder?: number
-}
-
-// ==================== Helpers ====================
-
-function normalizeOrgUnit(raw: any): AdminOrgUnit {
-  return {
-    id: String(raw?.id ?? ''),
-    name: String(raw?.name ?? ''),
-    type: String(raw?.type ?? raw?.unitType ?? '').toUpperCase(),
-    parentId: raw?.parentId ?? null,
-    path: raw?.path ?? null,
-    sortOrder: raw?.sortOrder,
-    createTime: raw?.createTime,
-  }
-}
-
-function normalizeConsultant(raw: any): ConsultantInfo {
-  return {
-    consultantId: raw?.consultantId ?? raw?.id,
-    name: raw?.name ?? raw?.realName ?? raw?.username ?? '',
-    email: raw?.email ?? '',
-    faculty: raw?.faculty ?? raw?.facultyName ?? '',
-  }
-}
-
-function normalizeStaff(raw: any): SupportingStaffInfo {
-  return {
-    staffId: raw?.staffId ?? raw?.id,
-    name: raw?.name ?? raw?.realName ?? raw?.username ?? '',
-    accountId: raw?.accountId ?? raw?.username ?? raw?.id ?? '',
-    canViewLog: Boolean(raw?.canViewLog ?? true),
-    canReplyFeedback: Boolean(raw?.canReplyFeedback ?? true),
-  }
-}
-
-async function findOrCreateOrgUnit(
-  units: AdminOrgUnit[],
-  name: string,
-  type: 'FACULTY' | 'DEPARTMENT' | 'MAJOR',
-  parentId: string | null,
-): Promise<AdminOrgUnit> {
-  const existed = units.find(
-    (u) =>
-      u.name === name &&
-      String(u.type).toUpperCase() === type &&
-      (u.parentId || null) === (parentId || null),
-  )
-
-  if (existed) return existed
-
-  const created = await createOrgUnit({
-    name,
-    type,
-    parentId,
-    sortOrder: units.length + 1,
-  })
-
-  units.push(created)
-  return created
-}
-
-function orgEntriesFromUnits(units: AdminOrgUnit[]): OrgEntry[] {
-  const byParent = new Map<string | null, AdminOrgUnit[]>()
-
-  for (const u of units) {
-    const key = u.parentId || null
-    if (!byParent.has(key)) byParent.set(key, [])
-    byParent.get(key)!.push(u)
-  }
-
-  const faculties = units.filter((u) => String(u.type).toUpperCase() === 'FACULTY')
-  const rows: OrgEntry[] = []
-
-  for (const faculty of faculties) {
-    const departments = (byParent.get(faculty.id) || []).filter(
-      (u) => String(u.type).toUpperCase() === 'DEPARTMENT',
-    )
-
-    if (departments.length === 0) {
-      rows.push({ faculty: faculty.name, department: '', major: '' })
-      continue
-    }
-
-    for (const dept of departments) {
-      const majors = (byParent.get(dept.id) || []).filter(
-        (u) => String(u.type).toUpperCase() === 'MAJOR',
-      )
-
-      if (majors.length === 0) {
-        rows.push({ faculty: faculty.name, department: dept.name, major: '' })
-        continue
-      }
-
-      for (const major of majors) {
-        rows.push({ faculty: faculty.name, department: dept.name, major: major.name })
-      }
-    }
-  }
-
-  return rows
-}
-
-// ==================== Faculty Consultant Management ====================
+// ==================== Faculty Consultant ====================
 
 export async function listConsultants(): Promise<ConsultantInfo[]> {
-  const res = await get<any[]>('/admin/consultants')
+  const res = await get<any[]>('/api/user/admin/faculty-consultants')
 
   if (res.code !== 200) {
-    throw new Error(res.message || 'Failed to list consultants')
+    throw new Error(res.message || 'Failed to load faculty consultants')
   }
 
   return (res.data || []).map(normalizeConsultant)
 }
 
-export async function getConsultant(consultantId: string): Promise<ConsultantInfo | null> {
-  const res = await get<any>(`/admin/consultants/${encodeURIComponent(consultantId)}`)
+export async function getConsultant(
+  consultantId: string,
+): Promise<ConsultantInfo | null> {
+  const id = String(consultantId || '').trim()
+  if (!id) throw new Error('consultantId is required')
 
-  if (res.code !== 200 || !res.data) return null
+  const res = await get<any>(
+    `/api/user/admin/faculty-consultants/${encodeURIComponent(id)}`,
+  )
+
+  if (res.code !== 200 || !res.data) {
+    return null
+  }
+
   return normalizeConsultant(res.data)
 }
 
 export async function addConsultant(info: ConsultantInfo): Promise<void> {
-  const res = await post<null>('/admin/consultants', info)
+  if (!info.email) throw new Error('Email is required')
+
+  const res = await post<any>(
+    '/api/user/admin/faculty-consultants',
+    buildUserPayload(info),
+  )
 
   if (res.code !== 200) {
-    throw new Error(res.message || 'Failed to add consultant')
+    throw new Error(res.message || 'Failed to add faculty consultant')
   }
 }
 
 export async function updateConsultant(info: ConsultantInfo): Promise<void> {
-  if (!info.consultantId) throw new Error('consultantId is required')
+  const id = String(info.consultantId || info.id || '').trim()
+  if (!id) throw new Error('consultantId is required')
 
-  const res = await post<null>(
-    `/admin/consultants/${encodeURIComponent(info.consultantId)}`,
-    info,
+  const res = await put<any>(
+    `/api/user/admin/faculty-consultants/${encodeURIComponent(id)}`,
+    buildUserPayload(info, true),
   )
 
   if (res.code !== 200) {
-    throw new Error(res.message || 'Failed to update consultant')
+    throw new Error(res.message || 'Failed to update faculty consultant')
   }
 }
 
+/**
+ * Still missing in current OpenAPI:
+ * DELETE /api/user/admin/faculty-consultants/{id}
+ */
 export async function deleteConsultant(consultantId: string): Promise<void> {
-  const res = await del<null>(`/admin/consultants/${encodeURIComponent(consultantId)}`)
-
-  if (res.code !== 200) {
-    throw new Error(res.message || 'Failed to delete consultant')
-  }
+  if (!consultantId) throw new Error('consultantId is required')
+  return missingEndpoint('deleteConsultant')
 }
 
-// ==================== Supporting Staff Management ====================
+// ==================== Supporting Staff ====================
 
+/**
+ * Current OpenAPI only explicitly lists POST /api/user/admin/supporting-staff.
+ * It says CRUD uses the same path with different methods, but GET/PUT/DELETE
+ * are not actually declared. Keep those functions as placeholders.
+ */
 export async function listSupportingStaff(): Promise<SupportingStaffInfo[]> {
-  const res = await get<any[]>('/admin/supporting-staff')
-
-  if (res.code !== 200) {
-    throw new Error(res.message || 'Failed to list staff')
-  }
-
-  return (res.data || []).map(normalizeStaff)
+  return missingEndpoint('listSupportingStaff')
 }
 
-export async function getSupportingStaff(staffId: string): Promise<SupportingStaffInfo | null> {
-  const res = await get<any>(`/admin/supporting-staff/${encodeURIComponent(staffId)}`)
-
-  if (res.code !== 200 || !res.data) return null
-  return normalizeStaff(res.data)
+export async function getSupportingStaff(
+  staffId: string,
+): Promise<SupportingStaffInfo | null> {
+  if (!staffId) throw new Error('staffId is required')
+  return missingEndpoint('getSupportingStaff')
 }
 
 export async function addSupportingStaff(info: SupportingStaffInfo): Promise<void> {
-  const res = await post<null>('/admin/supporting-staff', info)
+  const accountId = String(info.accountId || info.username || '').trim()
+  if (!accountId) throw new Error('accountId is required')
+
+  const res = await post<any>(
+    '/api/user/admin/supporting-staff',
+    buildSupportingStaffPayload(info),
+  )
 
   if (res.code !== 200) {
-    throw new Error(res.message || 'Failed to add staff')
+    throw new Error(res.message || 'Failed to add supporting staff')
   }
 }
 
 export async function updateSupportingStaff(info: SupportingStaffInfo): Promise<void> {
-  if (!info.staffId) throw new Error('staffId is required')
-
-  const res = await post<null>(
-    `/admin/supporting-staff/${encodeURIComponent(info.staffId)}`,
-    info,
-  )
-
-  if (res.code !== 200) {
-    throw new Error(res.message || 'Failed to update staff')
-  }
+  if (!info.staffId && !info.id) throw new Error('staffId is required')
+  return missingEndpoint('updateSupportingStaff')
 }
 
 export async function deleteSupportingStaff(staffId: string): Promise<void> {
-  const res = await del<null>(`/admin/supporting-staff/${encodeURIComponent(staffId)}`)
-
-  if (res.code !== 200) {
-    throw new Error(res.message || 'Failed to delete staff')
-  }
+  if (!staffId) throw new Error('staffId is required')
+  return missingEndpoint('deleteSupportingStaff')
 }
 
 // ==================== Organization ====================
 
-export async function listOrgUnits(): Promise<AdminOrgUnit[]> {
-  const res = await get<any[]>('/org/admin/units')
-
-  if (res.code !== 200) {
-    throw new Error(res.message || 'Failed to load organization units')
-  }
-
-  return (res.data || []).map(normalizeOrgUnit)
-}
-
-export async function getOrgUnit(id: string): Promise<AdminOrgUnit | null> {
-  const res = await get<any>(`/org/admin/units/${encodeURIComponent(id)}`)
-
-  if (res.code !== 200 || !res.data) return null
-  return normalizeOrgUnit(res.data)
-}
-
-export async function createOrgUnit(payload: CreateOrgUnitPayload): Promise<AdminOrgUnit> {
-  const res = await post<any>('/org/admin/units', payload)
-
-  if (res.code !== 200 || !res.data) {
-    throw new Error(res.message || 'Failed to create org unit')
-  }
-
-  return normalizeOrgUnit(res.data)
-}
-
-export async function updateOrgUnit(id: string, payload: UpdateOrgUnitPayload): Promise<void> {
-  const res = await put<null>(`/org/admin/units/${encodeURIComponent(id)}`, payload)
-
-  if (res.code !== 200) {
-    throw new Error(res.message || 'Failed to update org unit')
-  }
-}
-
-export async function deleteOrgUnit(id: string): Promise<void> {
-  const res = await del<null>(`/org/admin/units/${encodeURIComponent(id)}`)
-
-  if (res.code !== 200) {
-    throw new Error(res.message || 'Failed to delete org unit')
-  }
-}
-
-/**
- * Backward-compatible: old page wants rows of Faculty / Department / Major.
- */
 export async function getOrgTree(): Promise<OrgEntry[]> {
-  const units = await listOrgUnits()
-  return orgEntriesFromUnits(units)
+  const units = await getOrgUnits()
+  return flattenOrgUnitsToEntries(units)
 }
 
-/**
- * Backward-compatible: old page adds one Faculty / Department / Major row.
- * 内部会按层级创建缺失节点。
- */
+export async function getRawOrgUnits(): Promise<OrgUnit[]> {
+  return await getOrgUnits()
+}
+
 export async function addOrgEntry(entry: OrgEntry): Promise<void> {
-  const facultyName = entry.faculty?.trim()
-  const deptName = entry.department?.trim()
-  const majorName = entry.major?.trim()
+  const facultyName = entry.faculty.trim()
+  const departmentName = entry.department.trim()
+  const majorName = entry.major.trim()
 
-  if (!facultyName) throw new Error('Faculty is required.')
+  if (!facultyName || !departmentName || !majorName) {
+    throw new Error('Faculty, department and major are required.')
+  }
 
-  const units = await listOrgUnits()
-  const faculty = await findOrCreateOrgUnit(units, facultyName, 'FACULTY', null)
+  let units = await getOrgUnits()
 
-  if (!deptName) return
+  let faculty = units.find(
+    (u) => isType(u, 'FACULTY') && u.name.toLowerCase() === facultyName.toLowerCase(),
+  )
 
-  const dept = await findOrCreateOrgUnit(units, deptName, 'DEPARTMENT', faculty.id)
+  if (!faculty) {
+    await createOrgUnit({
+      name: facultyName,
+      type: 'FACULTY',
+      parentId: null,
+      sortOrder: 1,
+    })
 
-  if (!majorName) return
+    units = await getOrgUnits()
+    faculty = units.find(
+      (u) => isType(u, 'FACULTY') && u.name.toLowerCase() === facultyName.toLowerCase(),
+    )
+  }
 
-  await findOrCreateOrgUnit(units, majorName, 'MAJOR', dept.id)
+  if (!faculty) {
+    throw new Error('Failed to create faculty.')
+  }
+
+  let department = units.find(
+    (u) =>
+      isType(u, 'DEPARTMENT') &&
+      u.parentId === faculty!.id &&
+      u.name.toLowerCase() === departmentName.toLowerCase(),
+  )
+
+  if (!department) {
+    await createOrgUnit({
+      name: departmentName,
+      type: 'DEPARTMENT',
+      parentId: faculty.id,
+      sortOrder: 1,
+    })
+
+    units = await getOrgUnits()
+    department = units.find(
+      (u) =>
+        isType(u, 'DEPARTMENT') &&
+        u.parentId === faculty!.id &&
+        u.name.toLowerCase() === departmentName.toLowerCase(),
+    )
+  }
+
+  if (!department) {
+    throw new Error('Failed to create department.')
+  }
+
+  await createOrgUnit({
+    name: majorName,
+    type: 'MAJOR',
+    parentId: department.id,
+    sortOrder: 1,
+  })
+}
+
+export async function addOrgUnit(payload: CreateOrgUnitPayload): Promise<void> {
+  await createOrgUnit(payload)
+}
+
+export async function editOrgUnit(
+  id: string,
+  payload: {
+    name?: string
+    sortOrder?: number
+  },
+): Promise<void> {
+  const exists = await getOrgUnitById(id)
+  if (!exists) throw new Error('Organization unit not found')
+
+  await updateOrgUnit(id, payload)
+}
+
+export async function removeOrgUnit(id: string): Promise<void> {
+  await deleteOrgUnit(id)
 }
 
 export async function importOrgFromExcel(file: File): Promise<void> {
-  if (!file || file.size === 0) {
-    throw new Error('Uploaded file is empty.')
+  await importOrgUnitsFromExcel(file)
+}
+
+// ==================== Helpers ====================
+
+function normalizeConsultant(raw: any): ConsultantInfo {
+  const id = String(raw.id ?? raw.consultantId ?? '')
+  const realName = raw.realName ?? raw.name ?? ''
+
+  return {
+    ...raw,
+    id,
+    consultantId: id,
+    username: raw.username ?? '',
+    name: realName || raw.username || id,
+    realName,
+    email: raw.email ?? '',
+    phone: raw.phone ?? null,
+    faculty: raw.faculty ?? raw.facultyName ?? '',
+    status: Number(raw.status ?? 1),
+    raw,
+  }
+}
+
+function normalizeSupportingStaff(raw: any): SupportingStaffInfo {
+  const id = String(raw.id ?? raw.staffId ?? '')
+  const username = raw.username ?? raw.accountId ?? ''
+  const realName = raw.realName ?? raw.name ?? username
+
+  return {
+    ...raw,
+    id,
+    staffId: id,
+    username,
+    accountId: username,
+    name: realName,
+    realName,
+    email: raw.email ?? '',
+    phone: raw.phone ?? null,
+    status: Number(raw.status ?? 1),
+    canViewLog: Boolean(raw.canViewLog ?? true),
+    canReplyFeedback: Boolean(raw.canReplyFeedback ?? true),
+    raw,
+  }
+}
+
+function buildUserPayload(info: ConsultantInfo, partial = false): Record<string, any> {
+  const realName = info.realName ?? info.name
+  const email = info.email
+  const username =
+    info.username ||
+    (email ? email.split('@')[0] : undefined) ||
+    realName ||
+    undefined
+
+  const payload: Record<string, any> = {
+    username,
+    email,
+    realName,
+    phone: info.phone ?? '',
+    status: info.status ?? 1,
   }
 
-  const formData = new FormData()
-  formData.append('file', file)
-
-  const res = await upload<any>('/org/admin/units/import-excel', formData)
-
-  if (res.code !== 200) {
-    throw new Error(res.message || 'Failed to import organization file')
+  if (!partial || info.password) {
+    // Backend example requires password when creating. Keep default only for
+    // compatibility with old add page that did not have a password field.
+    payload.password = info.password || '123456'
   }
+
+  Object.keys(payload).forEach((key) => {
+    if (payload[key] === undefined || payload[key] === '') delete payload[key]
+  })
+
+  return payload
+}
+
+function buildSupportingStaffPayload(info: SupportingStaffInfo): Record<string, any> {
+  const username =
+    info.username ||
+    info.accountId ||
+    (info.email ? info.email.split('@')[0] : undefined)
+
+  const payload: Record<string, any> = {
+    username,
+    password: info.password || '123456',
+    email: info.email || `${username || 'support'}@bnbu.edu.cn`,
+    realName: info.realName || info.name || username,
+    phone: info.phone ?? '',
+    status: info.status ?? 1,
+  }
+
+  Object.keys(payload).forEach((key) => {
+    if (payload[key] === undefined || payload[key] === '') delete payload[key]
+  })
+
+  return payload
+}
+
+function isType(unit: OrgUnit, type: string): boolean {
+  return String(unit.type).toUpperCase() === type.toUpperCase()
+}
+
+function flattenOrgUnitsToEntries(units: OrgUnit[]): OrgEntry[] {
+  const faculties = units.filter((u) => isType(u, 'FACULTY'))
+  const departments = units.filter((u) => isType(u, 'DEPARTMENT'))
+  const majors = units.filter((u) => isType(u, 'MAJOR'))
+
+  const entries: OrgEntry[] = []
+
+  for (const major of majors) {
+    const department = departments.find((d) => d.id === major.parentId)
+    const faculty = department
+      ? faculties.find((f) => f.id === department.parentId)
+      : undefined
+
+    entries.push({
+      faculty: faculty?.name || '',
+      department: department?.name || '',
+      major: major.name,
+    })
+  }
+
+  return entries
 }
