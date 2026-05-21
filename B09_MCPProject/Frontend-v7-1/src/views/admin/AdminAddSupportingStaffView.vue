@@ -1,174 +1,132 @@
 <template>
-  <div class="page-card">
-    <div class="header">
-      <div>
-        <h1>{{ isEditMode ? 'Modify Supporting Staff' : 'Add Supporting Staff' }}</h1>
-        <p class="desc">
-          {{ isEditMode ? 'Update supporting staff information.' : 'Configure a new supporting staff account.' }}
-        </p>
-      </div>
-      <button class="secondary" @click="goHome">Home</button>
-    </div>
+  <section class="page">
+    <h1>{{ isEdit ? 'Edit Supporting Staff' : 'Add Supporting Staff' }}</h1>
 
-    <div class="form">
-      <div class="form-item">
-        <label>Staff Name</label>
-        <input v-model="name" type="text" placeholder="e.g. Staff A" />
-      </div>
+    <p v-if="error" class="error">{{ error }}</p>
 
-      <div class="form-item">
-        <label>Account ID</label>
-        <input v-model="accountId" type="text" placeholder="e.g. 001" />
-      </div>
+    <form class="form" @submit.prevent="submit">
+      <label>
+        Username
+        <input v-model.trim="form.username" :disabled="saving" required />
+      </label>
 
-      <div class="form-item">
-        <label>Assign Rights</label>
-        <div class="checkbox-group">
-          <label class="check-label">
-            <input type="checkbox" v-model="canViewLog" />
-            <span>View the log information of all students</span>
-          </label>
-          <label class="check-label">
-            <input type="checkbox" v-model="canReplyFeedback" />
-            <span>Respond to the feedback from the users</span>
-          </label>
-        </div>
-      </div>
+      <label>
+        Password
+        <input v-model.trim="form.password" :placeholder="isEdit ? 'Leave blank to keep unchanged' : ''" :required="!isEdit" type="password" :disabled="saving" />
+      </label>
 
-      <div class="buttons">
-        <button :disabled="isSaving" @click="save">
-          {{ isSaving ? 'Saving...' : 'Save' }}
+      <label>
+        Real Name
+        <input v-model.trim="form.realName" :disabled="saving" required />
+      </label>
+
+      <label>
+        Email
+        <input v-model.trim="form.email" type="email" :disabled="saving" required />
+      </label>
+
+      <label>
+        Phone
+        <input v-model.trim="form.phone" :disabled="saving" />
+      </label>
+
+      <label>
+        Status
+        <select v-model.number="form.status" :disabled="saving">
+          <option :value="1">Active</option>
+          <option :value="0">Disabled</option>
+        </select>
+      </label>
+
+      <div class="actions">
+        <button type="button" @click="router.back()">Back</button>
+        <button class="primary" type="submit" :disabled="saving">
+          {{ saving ? 'Saving...' : 'Save' }}
         </button>
-        <button class="secondary" @click="cancel">Cancel</button>
-        <button class="secondary" @click="goBack">Back</button>
       </div>
-
-      <p v-if="message" class="message" :class="{ error: isError }">{{ message }}</p>
-    </div>
-  </div>
+    </form>
+  </section>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  getSupportingStaff,
   addSupportingStaff,
+  getSupportingStaffById,
   updateSupportingStaff,
 } from '../../api/admin'
 
 const route = useRoute()
 const router = useRouter()
 
-const staffId = String(route.params.staffId || '').trim()
-const isEditMode = computed(() => !!staffId)
+const staffId = computed(() => String(route.params.staffId || route.params.id || ''))
+const isEdit = computed(() => Boolean(staffId.value))
+const saving = ref(false)
+const error = ref('')
 
-const name = ref('')
-const accountId = ref('')
-const canViewLog = ref(false)
-const canReplyFeedback = ref(false)
-const message = ref('')
-const isError = ref(false)
-const isSaving = ref(false)
-
-onMounted(async () => {
-  if (isEditMode.value) {
-    try {
-      const s = await getSupportingStaff(staffId)
-      if (s) {
-        name.value = s.name
-        accountId.value = s.accountId
-        canViewLog.value = s.canViewLog
-        canReplyFeedback.value = s.canReplyFeedback
-      } else {
-        message.value = 'Staff not found.'
-        isError.value = true
-      }
-    } catch (err: any) {
-      message.value = err.message || 'Failed to load.'
-      isError.value = true
-    }
-  }
+const form = reactive({
+  username: '',
+  password: '',
+  realName: '',
+  email: '',
+  phone: '',
+  status: 1,
 })
 
-async function save() {
-  message.value = ''
-  isError.value = false
-
-  if (!name.value.trim()) {
-    message.value = 'Warning: Staff name cannot be empty.'
-    isError.value = true
-    return
-  }
-  if (!accountId.value.trim()) {
-    message.value = 'Warning: Account ID cannot be empty.'
-    isError.value = true
-    return
-  }
-
-  isSaving.value = true
+async function load() {
+  if (!isEdit.value) return
   try {
-    if (isEditMode.value) {
-      await updateSupportingStaff({
-        staffId,
-        name: name.value.trim(),
-        accountId: accountId.value.trim(),
-        canViewLog: canViewLog.value,
-        canReplyFeedback: canReplyFeedback.value,
-      })
-      message.value = 'Staff updated.'
-    } else {
-      await addSupportingStaff({
-        name: name.value.trim(),
-        accountId: accountId.value.trim(),
-        canViewLog: canViewLog.value,
-        canReplyFeedback: canReplyFeedback.value,
-      })
-      message.value = 'Staff added.'
-      name.value = ''
-      accountId.value = ''
-      canViewLog.value = false
-      canReplyFeedback.value = false
+    const data = await getSupportingStaffById(staffId.value)
+    form.username = data.username || ''
+    form.realName = data.realName || ''
+    form.email = data.email || ''
+    form.phone = data.phone || ''
+    form.status = data.status ?? 1
+  } catch (e: any) {
+    error.value = e.message || 'Failed to load supporting staff.'
+  }
+}
+
+async function submit() {
+  saving.value = true
+  error.value = ''
+
+  try {
+    const payload: any = {
+      username: form.username,
+      email: form.email,
+      realName: form.realName,
+      phone: form.phone,
+      status: form.status,
     }
-  } catch (err: any) {
-    message.value = err.message || 'Save failed.'
-    isError.value = true
+
+    if (form.password) payload.password = form.password
+
+    if (isEdit.value) {
+      await updateSupportingStaff(staffId.value, payload)
+    } else {
+      await addSupportingStaff(payload)
+    }
+
+    router.push('/admin/supporting-staff')
+  } catch (e: any) {
+    error.value = e.message || 'Save failed.'
   } finally {
-    isSaving.value = false
+    saving.value = false
   }
 }
 
-function cancel() {
-  if (isEditMode.value) {
-    // 修改时取消 → 重新加载
-    location.reload()
-  } else {
-    name.value = ''
-    accountId.value = ''
-    canViewLog.value = false
-    canReplyFeedback.value = false
-  }
-}
-
-function goBack() { router.push('/admin/supporting-staff') }
-function goHome() { router.push('/main') }
+onMounted(load)
 </script>
 
 <style scoped>
-.header { display: flex; justify-content: space-between; align-items: center; }
-.form { max-width: 540px; margin-top: 22px; }
-.form-item { margin-top: 16px; }
-label { display: block; margin-bottom: 8px; font-weight: 600; }
-input[type="text"] {
-  width: 100%; padding: 10px; box-sizing: border-box;
-  border: 1px solid #d1d5db; border-radius: 6px;
-}
-.checkbox-group { display: flex; flex-direction: column; gap: 10px; }
-.check-label { font-weight: normal; cursor: pointer; }
-.check-label input { margin-right: 6px; }
-
-.buttons { margin-top: 20px; }
-.buttons button { margin-right: 10px; }
-.message { margin-top: 14px; color: #047857; }
-.error { color: #dc2626; }
+.page { max-width: 720px; margin: 0 auto; padding: 24px; }
+.form { display: grid; gap: 14px; background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; }
+label { display: grid; gap: 6px; font-weight: 600; }
+input, select { padding: 9px 10px; border: 1px solid #cbd5e1; border-radius: 8px; }
+.actions { display: flex; justify-content: flex-end; gap: 10px; }
+button { padding: 8px 14px; border: 1px solid #bbb; border-radius: 8px; background: #fff; cursor: pointer; }
+.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+.error { color: #b42318; }
 </style>

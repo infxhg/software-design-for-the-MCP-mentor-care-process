@@ -1,16 +1,8 @@
-/**
- * src/api/user.ts
- *
- * User module:
- * - register/login/user info
- * - feedback
- * - logs
- * - role mapping
- */
+import { get, post, unwrap, type QueryParams } from './request'
 
-import { get, post } from './request'
+export type FrontendRole = 'student' | 'mentor' | 'coordinator' | 'consultant' | 'admin' | 'support'
 
-export interface UserEntity {
+export interface UserAccount {
   id: string
   username: string
   passwordHash?: string | null
@@ -21,22 +13,134 @@ export interface UserEntity {
   isDeleted?: number
   createTime?: string | null
   updateTime?: string | null
+}
+
+export interface UserInfoData {
+  user: UserAccount
+  roles: string[]
+  permissions: string[]
+}
+
+export interface FeedbackItem {
+  id?: string
+  userId?: string
+  content: string
+  createTime?: string
   [key: string]: any
 }
+
+export interface OperationLog {
+  id: string
+  userId: string
+  username: string
+  action: string
+  detail: string
+  createTime: string
+}
+
+export function mapBackendRole(roles: string[] = []): FrontendRole {
+  const upper = roles.map((r) => String(r).toUpperCase())
+
+  if (upper.some((r) => r.includes('ADMIN'))) return 'admin'
+  if (upper.some((r) => r.includes('SUPPORT'))) return 'support'
+  if (upper.some((r) => r.includes('FACULTY') || r.includes('CONSULTANT'))) return 'consultant'
+  if (upper.some((r) => r.includes('COORDINATOR'))) return 'coordinator'
+  if (upper.some((r) => r.includes('MENTOR'))) return 'mentor'
+  return 'student'
+}
+
+export async function loginApi(username: string, password: string): Promise<string> {
+  const res = await get<string>(
+    '/api/user/login',
+    {
+      username,
+      password,
+    },
+    { skipAuth: true },
+  )
+  return unwrap(res)
+}
+
+export async function getUserInfoApi(username?: string): Promise<UserInfoData> {
+  const res = await get<UserInfoData>('/api/user/userInfo', username ? { username } : undefined)
+  return unwrap(res)
+}
+
+export async function registerSendCode(emailAccount: string): Promise<any> {
+  const res = await post<any>(
+    '/api/user/register',
+    undefined,
+    {
+      params: { emailAccount },
+      skipAuth: true,
+    } as any,
+  )
+  return unwrap(res)
+}
+
+export async function registerVerify(payload: {
+  user: {
+    email: string
+    username: string
+    passwordHash: string
+  }
+  verificationCode: string
+}): Promise<any> {
+  const res = await post<any>('/api/user/register/verify', payload, { skipAuth: true })
+  return unwrap(res)
+}
+
+export async function updateUserInfo(payload: Partial<UserAccount>): Promise<any> {
+  const res = await post<any>('/api/user/updateInfo', payload)
+  return unwrap(res)
+}
+
+export async function submitFeedback(content: string): Promise<FeedbackItem> {
+  const res = await post<FeedbackItem>('/api/user/feedback', { content })
+  return unwrap(res)
+}
+
+export async function listFeedback(): Promise<FeedbackItem[]> {
+  const res = await get<FeedbackItem[]>('/api/user/feedback')
+  return unwrap(res) || []
+}
+
+export async function listLogs(params?: {
+  userId?: string
+  action?: string
+  startTime?: string
+  endTime?: string
+}): Promise<OperationLog[]> {
+  const res = await get<OperationLog[]>('/api/user/logs', params as QueryParams)
+  return unwrap(res) || []
+}
+
+export async function listFacultyLogs(params?: {
+  action?: string
+  startTime?: string
+  endTime?: string
+  studentIds?: string[]
+}): Promise<OperationLog[]> {
+  const res = await get<OperationLog[]>('/api/user/logs/faculty', params as QueryParams)
+  return unwrap(res) || []
+}
+
+export async function listAllStudents(): Promise<UserAccount[]> {
+  const res = await get<UserAccount[]>('/api/user/students/all')
+  return unwrap(res) || []
+}
+
+
+// ==================== Backward compatibility ====================
+
+export type UserEntity = UserAccount
+export type UserInfoDTO = UserInfoData
 
 export interface OrgUnitEntity {
   id: string
   name: string
   type: string
   parentId?: string | null
-  [key: string]: any
-}
-
-export interface UserInfoDTO {
-  user: UserEntity
-  roles: string[]
-  permissions: string[]
-  orgUnits?: OrgUnitEntity[]
   [key: string]: any
 }
 
@@ -55,177 +159,33 @@ export interface UpdateUserInfoPayload {
   phone: string
 }
 
-export interface FeedbackItem {
-  id?: string
-  feedbackId?: string
-  userId?: string
-  username?: string
-  content?: string
-  reply?: string
-  status?: string
-  createTime?: string
-  updateTime?: string
-  [key: string]: any
-}
+export interface UserLogItem extends OperationLog {}
+export type UserLogQuery = Parameters<typeof listLogs>[0]
 
-export interface UserLogItem {
-  id?: string
-  userId?: string
-  username?: string
-  action?: string
-  module?: string
-  loginTime?: string
-  logoutTime?: string
-  mainFunctions?: string
-  createTime?: string
-  [key: string]: any
-}
+export const sendRegisterCode = registerSendCode
+export const sendRegisterCodeByQuery = registerSendCode
+export const getAllStudents = listAllStudents
 
-export interface UserLogQuery {
-  userId?: string
-  username?: string
-  action?: string
-  startTime?: string
-  endTime?: string
-  [key: string]: string | undefined
-}
-
-function missingEndpoint(name: string): never {
-  throw new Error(`${name}: backend endpoint is not provided in current OpenAPI. A placeholder has been kept here for future integration.`)
-}
-
-// ==================== Register ====================
-
-export async function sendRegisterCode(emailAccount: string): Promise<any> {
-  const res = await post<any>(
-    `/api/user/register?emailAccount=${encodeURIComponent(emailAccount)}`,
-    undefined,
-    { skipAuth: true },
-  )
-
-  return res.data
-}
-
-export const sendRegisterCodeByQuery = sendRegisterCode
-
-export async function registerVerify(payload: RegisterVerifyPayload): Promise<void> {
-  await post<null>('/api/user/register/verify', payload, { skipAuth: true })
-}
-
-// ==================== Login / User Info ====================
-
-export async function loginApi(username: string, password: string): Promise<string> {
-  const res = await get<string>(
-    '/api/user/login',
-    { username, password },
-    { skipAuth: true },
-  )
-
-  if (!res.data) {
-    throw new Error(res.message || 'Login failed: token is empty.')
-  }
-
-  return res.data
-}
-
-export async function getUserInfoApi(username: string): Promise<UserInfoDTO> {
-  const res = await get<UserInfoDTO>('/api/user/userInfo', { username })
-
-  if (!res.data) {
-    throw new Error(res.message || 'Failed to get user info.')
-  }
-
-  return res.data
-}
-
-export async function getInternalUserInfo(userId: string): Promise<UserEntity | null> {
-  const res = await get<UserEntity>('/internal/userInfo', { userId })
-  return res.data || null
+export async function getInternalUserInfo(userId: string): Promise<UserAccount | null> {
+  const res = await get<UserAccount>('/internal/userInfo', { userId })
+  return unwrap(res) || null
 }
 
 export const getUserInfoByIdApi = getInternalUserInfo
 
-export async function updateUserInfo(payload: UpdateUserInfoPayload): Promise<void> {
-  await post<null>('/api/user/updateInfo', payload)
+export async function getLogsByUser(userId: string): Promise<OperationLog[]> {
+  return listLogs({ userId })
 }
 
-export async function getAllStudents(): Promise<UserEntity[]> {
-  const res = await get<UserEntity[]>('/api/user/students/all')
-  return res.data || []
+export async function getFeedbackDetail(feedbackId: string): Promise<FeedbackItem | null> {
+  const feedback = await listFeedback()
+  return feedback.find((item) => String(item.id) === String(feedbackId)) || null
 }
 
-// ==================== Feedback ====================
-
-export async function submitFeedback(content: string): Promise<any> {
-  const res = await post<any>('/api/user/feedback', { content })
-  return res.data
+export async function replyFeedback(_feedbackId: string, _reply: string): Promise<void> {
+  throw new Error('replyFeedback: backend endpoint is not provided in current OpenAPI.')
 }
 
-export async function listFeedback(): Promise<FeedbackItem[]> {
-  const res = await get<FeedbackItem[]>('/api/user/feedback')
-  return res.data || []
-}
-
-export async function getFeedbackDetail(feedbackId: string): Promise<FeedbackItem> {
-  if (!feedbackId) throw new Error('feedbackId is required')
-  return missingEndpoint('getFeedbackDetail')
-}
-
-export async function replyFeedback(feedbackId: string, reply: string): Promise<void> {
-  if (!feedbackId) throw new Error('feedbackId is required')
-  if (!reply) throw new Error('reply is required')
-  return missingEndpoint('replyFeedback')
-}
-
-export async function updateFeedbackStatus(feedbackId: string, status: string): Promise<void> {
-  if (!feedbackId) throw new Error('feedbackId is required')
-  if (!status) throw new Error('status is required')
-  return missingEndpoint('updateFeedbackStatus')
-}
-
-// ==================== Logs ====================
-
-export async function listLogs(params?: UserLogQuery): Promise<UserLogItem[]> {
-  const res = await get<UserLogItem[]>('/api/user/logs', params)
-  return res.data || []
-}
-
-export async function listFacultyLogs(params?: UserLogQuery): Promise<UserLogItem[]> {
-  const res = await get<UserLogItem[]>('/api/user/logs/faculty', params)
-  return res.data || []
-}
-
-export async function getLogsByUser(userId: string): Promise<UserLogItem[]> {
-  if (!userId) throw new Error('userId is required')
-
-  // Current OpenAPI provides GET /api/user/logs only.
-  // Keep this wrapper so /support/log/:userId can call one place.
-  return await listLogs({ userId })
-}
-
-// ==================== Role Mapping ====================
-
-export type FrontendRole =
-  | 'student'
-  | 'mentor'
-  | 'coordinator'
-  | 'consultant'
-  | 'admin'
-  | 'support'
-
-export function mapBackendRole(backendRoles: string[] = []): FrontendRole {
-  const roleText = backendRoles.join(',').toUpperCase()
-
-  if (roleText.includes('ADMIN')) return 'admin'
-  if (roleText.includes('SUPPORT')) return 'support'
-  if (
-    roleText.includes('FACULTY_CONSULTANT') ||
-    roleText.includes('CONSULTANT') ||
-    roleText.includes('FACULTY')
-  ) return 'consultant'
-  if (roleText.includes('COORDINATOR') || roleText.includes('MCP')) return 'coordinator'
-  if (roleText.includes('MENTOR')) return 'mentor'
-  if (roleText.includes('STUDENT')) return 'student'
-
-  return 'student'
+export async function updateFeedbackStatus(_feedbackId: string, _status: string): Promise<void> {
+  throw new Error('updateFeedbackStatus: backend endpoint is not provided in current OpenAPI.')
 }

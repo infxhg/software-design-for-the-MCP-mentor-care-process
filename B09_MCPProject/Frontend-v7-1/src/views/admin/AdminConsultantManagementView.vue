@@ -1,125 +1,104 @@
 <template>
-  <div class="page-card">
+  <section class="page">
     <div class="header">
       <div>
         <h1>Faculty Consultant Management</h1>
-        <p class="desc">Add, change, or delete faculty consultants.</p>
+        <p>Manage Faculty Consultant accounts.</p>
       </div>
-      <button class="secondary" @click="goHome">Home</button>
+      <button class="primary" @click="goAdd">Add Consultant</button>
     </div>
 
-    <div class="actions-row">
-      <button @click="goAdd">Add</button>
-    </div>
+    <p v-if="error" class="error">{{ error }}</p>
+    <p v-if="loading">Loading...</p>
 
-    <div v-if="isLoading" class="loading">Loading...</div>
-
-    <table v-else-if="consultants.length > 0">
+    <table v-if="!loading" class="table">
       <thead>
-      <tr>
-        <th>Consultant ID</th>
-        <th>Name</th>
-        <th>Email</th>
-        <th>Faculty</th>
-        <th>Action</th>
-      </tr>
+        <tr>
+          <th>Consultant ID</th>
+          <th>Name</th>
+          <th>Username</th>
+          <th>Email</th>
+          <th>Phone</th>
+          <th>Status</th>
+          <th class="actions">Action</th>
+        </tr>
       </thead>
       <tbody>
-      <tr v-for="c in consultants" :key="c.consultantId">
-        <td>{{ c.consultantId }}</td>
-        <td>{{ c.name }}</td>
-        <td>{{ c.email }}</td>
-        <td>{{ c.faculty }}</td>
-        <td>
-          <button class="link-btn" @click="goEdit(c.consultantId!)">Change</button>
-          <button
-              class="danger"
-              :disabled="deletingId === c.consultantId"
-              @click="remove(c.consultantId!)"
-          >
-            {{ deletingId === c.consultantId ? '...' : 'Delete' }}
-          </button>
-        </td>
-      </tr>
+        <tr v-for="item in consultants" :key="item.id">
+          <td>{{ item.id }}</td>
+          <td>{{ item.realName || '-' }}</td>
+          <td>{{ item.username || '-' }}</td>
+          <td>{{ item.email || '-' }}</td>
+          <td>{{ item.phone || '-' }}</td>
+          <td>{{ item.status === 1 ? 'Active' : item.status }}</td>
+          <td class="actions">
+            <button @click="goEdit(item.id)">Change</button>
+            <button class="danger" @click="remove(item.id)">Delete</button>
+          </td>
+        </tr>
+        <tr v-if="consultants.length === 0">
+          <td colspan="7" class="empty">No faculty consultants.</td>
+        </tr>
       </tbody>
     </table>
-
-    <p v-else class="empty">No consultants configured yet.</p>
-
-    <div class="buttons">
-      <button class="secondary" @click="goBack">Back</button>
-    </div>
-
-    <p v-if="message" class="message" :class="{ error: isError }">{{ message }}</p>
-  </div>
+  </section>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { listConsultants, deleteConsultant } from '../../api/admin'
-import type { ConsultantInfo } from '../../api/admin'
+import { deleteConsultant, listConsultants, type AdminAccount } from '../../api/admin'
 
 const router = useRouter()
-
-const consultants = ref<ConsultantInfo[]>([])
-const isLoading = ref(true)
-const message = ref('')
-const isError = ref(false)
-const deletingId = ref('')
-
-onMounted(load)
+const loading = ref(false)
+const error = ref('')
+const consultants = ref<AdminAccount[]>([])
 
 async function load() {
-  isLoading.value = true
+  loading.value = true
+  error.value = ''
   try {
     consultants.value = await listConsultants()
-  } catch (err: any) {
-    message.value = err.message || 'Failed to load consultants.'
-    isError.value = true
+  } catch (e: any) {
+    error.value = e.message || 'Failed to load consultants.'
   } finally {
-    isLoading.value = false
+    loading.value = false
   }
 }
 
-function goAdd() { router.push('/admin/consultants/add') }
+function goAdd() {
+  router.push('/admin/consultants/add')
+}
+
 function goEdit(id: string) {
   router.push(`/admin/consultants/edit/${encodeURIComponent(id)}`)
 }
 
-async function remove(consultantId: string) {
-  if (!confirm('Delete this consultant?')) return
-
-  deletingId.value = consultantId
+async function remove(id: string) {
+  if (!window.confirm('Delete this faculty consultant?')) return
   try {
-    await deleteConsultant(consultantId)
+    await deleteConsultant(id)
     await load()
-    message.value = 'Consultant deleted.'
-  } catch (err: any) {
-    message.value = err.message || 'Failed to delete.'
-    isError.value = true
-  } finally {
-    deletingId.value = ''
+  } catch (e: any) {
+    alert(e.message || 'Delete failed.')
   }
 }
 
-function goBack() { router.back() }
-function goHome() { router.push('/main') }
+onMounted(load)
 </script>
 
 <style scoped>
-.header { display: flex; justify-content: space-between; align-items: center; }
-.actions-row { margin: 20px 0; }
-table { width: 100%; border-collapse: collapse; }
-th, td { padding: 11px; border: 1px solid #e5e7eb; text-align: left; }
-th { background: #f3f4f6; }
-.link-btn {
-  background: transparent; color: #2563eb;
-  border: none; padding: 0 6px 0 0; cursor: pointer;
-  font-weight: 600; text-decoration: underline; margin-right: 8px;
-}
-.empty, .loading { color: #6b7280; padding: 18px 0; }
-.buttons { margin-top: 18px; }
-.message { margin-top: 14px; color: #047857; }
-.error { color: #dc2626; }
+.page { max-width: 1100px; margin: 0 auto; padding: 24px; }
+.header { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 20px; }
+h1 { margin: 0 0 6px; }
+p { margin: 0; color: #666; }
+.table { width: 100%; border-collapse: collapse; background: #fff; }
+th, td { border: 1px solid #e5e7eb; padding: 10px; text-align: left; }
+th { background: #f8fafc; }
+.actions { white-space: nowrap; }
+button { margin-right: 8px; padding: 6px 10px; border: 1px solid #bbb; border-radius: 6px; background: #fff; cursor: pointer; }
+.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+.danger { color: #b42318; border-color: #f3b8b2; }
+.error { margin: 12px 0; color: #b42318; }
+.empty { text-align: center; color: #777; }
 </style>

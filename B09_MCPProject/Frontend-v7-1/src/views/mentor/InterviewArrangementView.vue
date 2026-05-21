@@ -1,299 +1,147 @@
 <template>
-  <div class="page-card">
-    <div class="header">
-      <div>
-        <h1>Interview Arrangement</h1>
-        <p class="desc">Invite a student to select one of your available 30-minute slots.</p>
-      </div>
-      <div class="actions">
-        <button class="secondary" @click="goVenue">Step 2: Confirm Venue</button>
-        <button class="secondary" @click="goHome">Home</button>
-      </div>
-    </div>
+  <section class="page">
+    <h1>Interview Arrangement</h1>
+    <p class="muted">Create 30-minute available slots for students to book.</p>
 
-    <div class="form">
-      <div class="form-item">
-        <label>Student</label>
-        <select v-if="students.length > 0" v-model="studentId">
-          <option value="">-- Select Student --</option>
-          <option v-for="student in students" :key="student.id" :value="student.id">
-            {{ student.name }} ({{ student.id }})
-          </option>
-        </select>
-        <input v-else v-model.trim="studentId" placeholder="Enter Student ID" />
+    <form class="card" @submit.prevent="createSlots">
+      <label>
+        Slot Date
+        <input v-model="slotDate" type="date" required />
+      </label>
+
+      <div class="inline">
+        <input v-model="timeInput" type="time" step="1800" />
+        <button type="button" @click="addTime">Add Time</button>
       </div>
 
-      <div class="form-row">
-        <div class="form-item">
-          <label>Date</label>
-          <input v-model="slotDate" type="date" />
-        </div>
-
-        <div class="form-item">
-          <label>Start Time</label>
-          <input v-model="slotTime" type="time" step="1800" />
-        </div>
-
-        <button class="add-button" @click="addSlot">Add Slot</button>
+      <div class="chips">
+        <span v-for="t in startTimes" :key="t" class="chip">
+          {{ t }}
+          <button type="button" @click="removeTime(t)">×</button>
+        </span>
       </div>
 
-      <table v-if="slots.length > 0">
+      <p v-if="error" class="error">{{ error }}</p>
+      <button class="primary" :disabled="loading || !slotDate || startTimes.length === 0">
+        {{ loading ? 'Creating...' : 'Create Slots' }}
+      </button>
+    </form>
+
+    <div class="card">
+      <h2>My Slots</h2>
+      <button @click="loadSlots">Refresh</button>
+      <table class="table">
         <thead>
           <tr>
             <th>Date</th>
             <th>Start</th>
             <th>End</th>
+            <th>Status</th>
+            <th>Student</th>
+            <th>Venue</th>
             <th>Action</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="slot in slots" :key="slot.key">
-            <td>{{ slot.date }}</td>
-            <td>{{ slot.startTime }}</td>
-            <td>{{ slot.endTime }}</td>
-            <td><button class="danger" @click="removeSlot(slot.key)">Remove</button></td>
+          <tr v-for="s in slots" :key="s.slotId">
+            <td>{{ s.slotDate }}</td>
+            <td>{{ s.startTime }}</td>
+            <td>{{ s.endTime || '-' }}</td>
+            <td>{{ s.status || '-' }}</td>
+            <td>{{ s.studentId || '-' }}</td>
+            <td>{{ s.venue || '-' }}</td>
+            <td><button class="danger" @click="cancel(s.slotId)">Cancel</button></td>
+          </tr>
+          <tr v-if="slots.length === 0">
+            <td colspan="7" class="empty">No slots.</td>
           </tr>
         </tbody>
       </table>
-
-      <p v-if="message" class="message" :class="{ error: isError }">
-        {{ message }}
-      </p>
-
-      <button :disabled="submitting || !studentId || slots.length === 0" @click="sendInvitation">
-        {{ submitting ? 'Sending...' : 'Send Interview Invitation' }}
-      </button>
     </div>
-  </div>
+  </section>
 </template>
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import {
+  cancelAppointmentSlot,
+  createAppointmentSlots,
+  getMentorAppointmentSlots,
+  type AppointmentSlot,
+} from '../../api/mentoring'
+import { getCurrentUserId } from '../../api/request'
 
-const router = useRouter()
-
-type Slot = {
-  key: string
-  date: string
-  startTime: string
-  endTime: string
-}
-
-const students = ref<{ id: string; name: string }[]>([])
-const studentId = ref('')
 const slotDate = ref('')
-const slotTime = ref('')
-const slots = ref<Slot[]>([])
-const submitting = ref(false)
-const message = ref('')
-const isError = ref(false)
+const timeInput = ref('')
+const startTimes = ref<string[]>([])
+const slots = ref<AppointmentSlot[]>([])
+const loading = ref(false)
+const error = ref('')
 
-onMounted(loadStudents)
+function addTime() {
+  if (!timeInput.value) return
+  if (!startTimes.value.includes(timeInput.value)) {
+    startTimes.value.push(timeInput.value)
+    startTimes.value.sort()
+  }
+  timeInput.value = ''
+}
 
-async function loadStudents() {
+function removeTime(t: string) {
+  startTimes.value = startTimes.value.filter((x) => x !== t)
+}
+
+async function createSlots() {
+  loading.value = true
+  error.value = ''
   try {
-    const mentoringApi: any = await import('../../api/mentoring')
-    const orgApi: any = await import('../../api/org')
-
-    const fn =
-      mentoringApi.getMentorStudents ||
-      mentoringApi.getMyStudents ||
-      mentoringApi.getMyGroupStudents ||
-      orgApi.getAllStudents ||
-      orgApi.searchAllStudents
-
-    if (!fn) return
-
-    const data = fn === orgApi.searchAllStudents ? await fn('') : await fn()
-    students.value = normalizeStudents(data)
-  } catch {
-    students.value = []
-  }
-}
-
-function addSlot() {
-  clearMessage()
-
-  if (!slotDate.value || !slotTime.value) {
-    showError('Please select date and start time.')
-    return
-  }
-
-  const endTime = addThirtyMinutes(slotTime.value)
-  const key = `${slotDate.value}_${slotTime.value}`
-
-  if (slots.value.some((slot) => slot.key === key)) {
-    showError('This slot already exists.')
-    return
-  }
-
-  slots.value.push({
-    key,
-    date: slotDate.value,
-    startTime: slotTime.value,
-    endTime,
-  })
-
-  slotTime.value = ''
-}
-
-function removeSlot(key: string) {
-  slots.value = slots.value.filter((slot) => slot.key !== key)
-}
-
-async function sendInvitation() {
-  clearMessage()
-
-  if (!studentId.value) {
-    showError('Please select a student.')
-    return
-  }
-
-  if (slots.value.length === 0) {
-    showError('Please add at least one time slot.')
-    return
-  }
-
-  submitting.value = true
-
-  try {
-    const communicationApi: any = await import('../../api/communication')
-    const mentoringApi: any = await import('../../api/mentoring')
-
-    const payloadSlots = slots.value.map((slot) => ({
-      date: slot.date,
-      startTime: slot.startTime,
-      endTime: slot.endTime,
-      start: `${slot.date}T${slot.startTime}:00`,
-      end: `${slot.date}T${slot.endTime}:00`,
-    }))
-
-    const fn =
-      communicationApi.sendInterviewInvitation ||
-      mentoringApi.sendInterviewInvitation ||
-      mentoringApi.createAppointmentSlots ||
-      mentoringApi.createInterviewSlots
-
-    if (!fn) {
-      throw new Error('Interview arrangement API is not available.')
-    }
-
-    await fn(studentId.value, payloadSlots)
-
-    showSuccess('Interview invitation sent successfully.')
-    slots.value = []
-    studentId.value = ''
-  } catch (err: any) {
-    showError(err.message || 'Failed to send invitation.')
+    await createAppointmentSlots({ slotDate: slotDate.value, startTimes: startTimes.value })
+    startTimes.value = []
+    await loadSlots()
+  } catch (e: any) {
+    error.value = e.message || 'Failed to create slots.'
   } finally {
-    submitting.value = false
+    loading.value = false
   }
 }
 
-function addThirtyMinutes(time: string): string {
-  const [h, m] = time.split(':').map(Number)
-  const date = new Date()
-  date.setHours(h, m, 0, 0)
-  date.setMinutes(date.getMinutes() + 30)
-  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+async function loadSlots() {
+  const mentorId = getCurrentUserId()
+  if (!mentorId) return
+  try {
+    slots.value = await getMentorAppointmentSlots(mentorId)
+  } catch (e: any) {
+    error.value = e.message || 'Failed to load slots.'
+  }
 }
 
-function normalizeStudents(data: any) {
-  const list = Array.isArray(data) ? data : data?.data || data?.records || []
-  return list
-    .map((item: any) => ({
-      id: String(item.studentId ?? item.id ?? ''),
-      name: item.studentName ?? item.name ?? item.username ?? item.studentId,
-    }))
-    .filter((item: any) => item.id)
+async function cancel(slotId: string) {
+  if (!window.confirm('Cancel this slot?')) return
+  try {
+    await cancelAppointmentSlot(slotId)
+    await loadSlots()
+  } catch (e: any) {
+    alert(e.message || 'Cancel failed.')
+  }
 }
 
-function goVenue() {
-  router.push('/mentor/interview-arrangement/venue')
-}
-
-function goHome() {
-  router.push('/main')
-}
-
-function clearMessage() {
-  message.value = ''
-  isError.value = false
-}
-
-function showSuccess(text: string) {
-  message.value = text
-  isError.value = false
-}
-
-function showError(text: string) {
-  message.value = text
-  isError.value = true
-}
+onMounted(loadSlots)
 </script>
 
 <style scoped>
-.header,
-.actions,
-.form-row {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-.header {
-  justify-content: space-between;
-}
-.form {
-  margin-top: 22px;
-  max-width: 850px;
-}
-.form-item {
-  margin-top: 16px;
-  flex: 1;
-}
-label {
-  display: block;
-  margin-bottom: 8px;
-  font-weight: 600;
-}
-input,
-select {
-  width: 100%;
-  padding: 10px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  box-sizing: border-box;
-}
-.add-button {
-  margin-top: 42px;
-}
-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 18px;
-}
-th,
-td {
-  padding: 10px;
-  border: 1px solid #e5e7eb;
-  text-align: left;
-}
-th {
-  background: #f3f4f6;
-}
-.message {
-  margin-top: 14px;
-  color: #047857;
-}
-.error {
-  color: #dc2626;
-}
-.danger {
-  background: #dc2626;
-}
-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.65;
-}
+.page { max-width: 1000px; margin: 0 auto; padding: 24px; }
+.card { margin-top: 16px; padding: 18px; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; display: grid; gap: 12px; }
+.inline { display: flex; gap: 10px; align-items: center; }
+input { padding: 9px 10px; border: 1px solid #cbd5e1; border-radius: 8px; }
+button { width: fit-content; padding: 7px 12px; border: 1px solid #bbb; border-radius: 8px; background: #fff; cursor: pointer; }
+.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+.danger { color: #b42318; border-color: #f3b8b2; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { display: inline-flex; gap: 6px; align-items: center; padding: 4px 8px; background: #eef2ff; border-radius: 999px; }
+.table { width: 100%; border-collapse: collapse; }
+th, td { border: 1px solid #e5e7eb; padding: 9px; text-align: left; }
+th { background: #f8fafc; }
+.error { color: #b42318; }
+.empty { text-align: center; color: #777; }
+.muted { color: #666; }
 </style>

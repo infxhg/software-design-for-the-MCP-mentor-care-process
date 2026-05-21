@@ -1,99 +1,107 @@
 <template>
-  <div class="page-card">
-    <div class="header">
-      <div>
-        <h1>My Mentor Information</h1>
-        <p class="desc">View your assigned mentor's basic information.</p>
-      </div>
-      <button class="secondary" @click="goHome">Home</button>
+  <section class="page">
+    <h1>My Mentor</h1>
+
+    <p v-if="error" class="error">{{ error }}</p>
+
+    <div class="card" v-if="groupStatus">
+      <h2>Group Status</h2>
+      <p><strong>Group ID:</strong> {{ groupStatus.groupId || '-' }}</p>
+      <p><strong>Major ID:</strong> {{ groupStatus.majorId || '-' }}</p>
+      <p><strong>Status:</strong> {{ groupStatus.status || '-' }}</p>
     </div>
 
-    <div v-if="isLoading" class="loading">Loading...</div>
-
-    <div v-else-if="mentor" class="mentor-info">
-      <div class="info-grid">
-        <div><strong>Mentor Name</strong><p>{{ mentor.name }}</p></div>
-        <div><strong>Office</strong><p>{{ mentor.office || 'N/A' }}</p></div>
-        <div><strong>Email</strong><p>{{ mentor.email || 'N/A' }}</p></div>
-        <div><strong>Department</strong><p>{{ mentor.department || 'N/A' }}</p></div>
-        <div><strong>Group ID</strong><p>{{ mentor.groupId || 'N/A' }}</p></div>
-      </div>
+    <div class="card" v-if="mentors.length">
+      <h2>Mentor Information</h2>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Username</th>
+            <th>Email</th>
+            <th>Phone</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="m in mentors" :key="m.id">
+            <td>{{ m.realName || '-' }}</td>
+            <td>{{ m.username || '-' }}</td>
+            <td>{{ m.email || '-' }}</td>
+            <td>{{ m.phone || '-' }}</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
 
-    <div v-else class="empty">
-      <p>No mentor information found for your group.</p>
-      <p class="hint">If you are not in any mentoring group yet, please contact your faculty consultant.</p>
+    <div class="card">
+      <h2>My Interview Records</h2>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Time</th>
+            <th>Problem</th>
+            <th>Summary</th>
+            <th>Follow-up</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="r in records" :key="r.recordId">
+            <td>{{ r.interviewDate || '-' }}</td>
+            <td>{{ r.interviewTime || '-' }}</td>
+            <td>{{ r.problemStatement || '-' }}</td>
+            <td>{{ r.interviewSummary || '-' }}</td>
+            <td>{{ r.followupAction || '-' }}</td>
+          </tr>
+          <tr v-if="records.length === 0">
+            <td colspan="5" class="empty">No records.</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
-
-    <div class="buttons">
-      <button class="secondary" @click="goBack">Back</button>
-    </div>
-
-    <p v-if="errorMsg" class="error">{{ errorMsg }}</p>
-  </div>
+  </section>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { onMounted, ref } from 'vue'
+import {
+  getMyGroupStatus,
+  getMyMentor,
+  getMyRecordsAsStudent,
+  type InterviewRecord,
+} from '../../api/mentoring'
 
-const router = useRouter()
+const groupStatus = ref<any>(null)
+const mentors = ref<any[]>([])
+const records = ref<InterviewRecord[]>([])
+const error = ref('')
 
-interface MentorBriefInfo {
-  name: string
-  office: string
-  email: string
-  department: string
-  groupId: string
+async function load() {
+  error.value = ''
+  try {
+    const [mentorData, statusData, recordData] = await Promise.all([
+      getMyMentor(),
+      getMyGroupStatus(),
+      getMyRecordsAsStudent(),
+    ])
+
+    groupStatus.value = statusData
+    mentors.value = Array.isArray(mentorData?.mentor) ? mentorData.mentor : mentorData?.mentor ? [mentorData.mentor] : []
+    records.value = recordData
+  } catch (e: any) {
+    error.value = e.message || 'Failed to load mentor information.'
+  }
 }
 
-const mentor = ref<MentorBriefInfo | null>(null)
-const isLoading = ref(true)
-const errorMsg = ref('')
-
-onMounted(async () => {
-  /**
-   * 后端接口尚未到位时使用 mock。
-   * 真实场景：GET /api/student/my-mentor
-   *   returns { name, office, email, department, groupId } | null
-   */
-  try {
-    await new Promise((r) => setTimeout(r, 200))
-    mentor.value = {
-      name: 'Mary Lee',
-      office: 'T3-601',
-      email: 'marylee@bnbu.edu.cn',
-      department: 'DCS',
-      groupId: '2024-2025-Y2',
-    }
-  } catch (err: any) {
-    errorMsg.value = 'Failed to load mentor info: ' + (err.message || 'Unknown error')
-  } finally {
-    isLoading.value = false
-  }
-})
-
-function goBack() { router.back() }
-function goHome() { router.push('/main') }
+onMounted(load)
 </script>
 
 <style scoped>
-.header { display: flex; justify-content: space-between; align-items: center; }
-
-.info-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px; margin-top: 24px;
-}
-.info-grid div {
-  padding: 16px; background: #f9fafb; border-radius: 8px;
-}
-.info-grid p { margin-bottom: 0; word-break: break-all; }
-
-.empty { margin-top: 24px; color: #6b7280; }
-.hint { color: #9ca3af; }
-
-.buttons { margin-top: 24px; }
-.message, .error { margin-top: 14px; }
-.error { color: #dc2626; }
-.loading { color: #6b7280; padding: 30px; text-align: center; }
+.page { max-width: 1000px; margin: 0 auto; padding: 24px; }
+.card { margin-top: 16px; padding: 18px; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; }
+.table { width: 100%; border-collapse: collapse; }
+th, td { border: 1px solid #e5e7eb; padding: 9px; text-align: left; }
+th { background: #f8fafc; }
+.error { color: #b42318; }
+.empty { text-align: center; color: #777; }
 </style>

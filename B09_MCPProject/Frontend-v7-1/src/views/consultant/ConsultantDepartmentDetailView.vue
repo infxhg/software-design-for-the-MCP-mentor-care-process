@@ -1,180 +1,192 @@
 <template>
-  <div class="page-card">
-    <div class="header">
-      <div>
-        <h1>Department Detail</h1>
-        <p class="desc">Department: <strong>{{ dept?.departmentName || deptId }}</strong></p>
-      </div>
-      <button class="secondary" @click="goHome">Home</button>
+  <section class="page">
+    <h1>Designate MCP Coordinators</h1>
+    <p class="muted">
+      Import coordinator list by Excel, or manually bind a coordinator to a department/unit.
+    </p>
+
+    <div class="card">
+      <h2>Import Coordinator Excel</h2>
+      <input type="file" accept=".xlsx,.xls" @change="onFileChange" />
+      <button class="primary" :disabled="!file || loading" @click="importFile">
+        {{ loading ? 'Importing...' : 'Import Coordinators' }}
+      </button>
     </div>
 
-    <div v-if="isLoading" class="loading">Loading...</div>
+    <div class="card">
+      <h2>Manual Designate / Update</h2>
+      <label>
+        Department Unit ID
+        <input v-model.trim="unitId" placeholder="e.g. org_dcs" />
+      </label>
+      <label>
+        Coordinator User ID
+        <input v-model.trim="payload.coordinatorId" placeholder="coordinator sys_user.id" />
+      </label>
+      <label>
+        Email
+        <input v-model.trim="payload.email" type="email" placeholder="optional" />
+      </label>
+      <label>
+        Real Name
+        <input v-model.trim="payload.realName" placeholder="optional" />
+      </label>
 
-    <div v-else-if="dept">
-      <div class="info-box">
-        <p><strong>Current MCP Coordinator:</strong> {{ dept.coordinatorName || 'Not designated' }}</p>
-        <p v-if="dept.coordinatorEmail"><strong>Email:</strong> {{ dept.coordinatorEmail }}</p>
+      <div class="actions">
+        <button class="primary" :disabled="!unitId" @click="createOrReplace">Designate</button>
+        <button :disabled="!unitId" @click="update">Update</button>
+        <button class="danger" :disabled="!unitId" @click="remove">Remove</button>
       </div>
-
-      <h2>Actions for Coordinator</h2>
-
-      <div class="actions-row">
-        <button @click="showChange = !showChange">
-          {{ showChange ? 'Cancel' : 'Change Coordinator' }}
-        </button>
-
-        <button
-            v-if="dept.coordinatorName"
-            class="danger"
-            :disabled="isRemoving"
-            @click="remove"
-        >
-          {{ isRemoving ? 'Removing...' : 'Remove' }}
-        </button>
-      </div>
-
-      <div v-if="showChange" class="change-form">
-        <div class="form-item">
-          <label>New Coordinator Name</label>
-          <input v-model="newName" type="text" />
-        </div>
-        <div class="form-item">
-          <label>Email</label>
-          <input v-model="newEmail" type="email" placeholder="name@bnbu.edu.cn" />
-        </div>
-        <button :disabled="isSaving" @click="save">
-          {{ isSaving ? 'Saving...' : 'Save' }}
-        </button>
-      </div>
-
-      <p v-if="message" class="message" :class="{ error: isError }">{{ message }}</p>
     </div>
 
-    <p v-else class="error">Department not found.</p>
+    <p v-if="error" class="error">{{ error }}</p>
+    <p v-if="success" class="success">{{ success }}</p>
 
-    <div class="buttons">
-      <button class="secondary" @click="goBack">Back</button>
+    <div class="card">
+      <h2>Organization Units</h2>
+      <button @click="loadUnits">Refresh Units</button>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Parent ID</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="u in units" :key="u.id" @click="unitId = u.id">
+            <td>{{ u.id }}</td>
+            <td>{{ u.name }}</td>
+            <td>{{ u.type }}</td>
+            <td>{{ u.parentId || '-' }}</td>
+          </tr>
+          <tr v-if="units.length === 0">
+            <td colspan="4" class="empty">No units.</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
-  </div>
+
+    <p class="note">
+      Note: this page calls /api/mentoring/units/{unitId}/coordinator based on the previous confirmation that the backend uses units.
+      If Network shows 404, the backend OpenAPI or route still needs to be synchronized.
+    </p>
+  </section>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onMounted, reactive, ref } from 'vue'
 import {
-  getDepartmentDetail,
   designateCoordinator,
+  importCoordinatorList,
   removeCoordinator,
+  updateCoordinator,
 } from '../../api/consultant'
-import type { DepartmentSummary } from '../../api/consultant'
+import { getOrgTree } from '../../api/org'
+import type { OrgUnit } from '../../api/admin'
 
-const route = useRoute()
-const router = useRouter()
+const file = ref<File | null>(null)
+const unitId = ref('')
+const loading = ref(false)
+const error = ref('')
+const success = ref('')
+const units = ref<OrgUnit[]>([])
 
-const deptId = String(route.params.deptId || '').trim()
+const payload = reactive({
+  coordinatorId: '',
+  email: '',
+  realName: '',
+})
 
-const dept = ref<DepartmentSummary | null>(null)
-const isLoading = ref(true)
-const message = ref('')
-const isError = ref(false)
-const showChange = ref(false)
+function onFileChange(event: Event) {
+  const target = event.target as HTMLInputElement
+  file.value = target.files?.[0] || null
+}
 
-const newName = ref('')
-const newEmail = ref('')
-const isSaving = ref(false)
-const isRemoving = ref(false)
-
-onMounted(load)
-
-async function load() {
-  isLoading.value = true
+async function importFile() {
+  if (!file.value) return
+  loading.value = true
+  error.value = ''
+  success.value = ''
   try {
-    dept.value = await getDepartmentDetail(deptId)
-  } catch (err: any) {
-    message.value = err.message || 'Failed to load department.'
-    isError.value = true
+    await importCoordinatorList(file.value)
+    success.value = 'Coordinator list imported successfully.'
+  } catch (e: any) {
+    error.value = e.message || 'Import failed.'
   } finally {
-    isLoading.value = false
+    loading.value = false
   }
 }
 
-async function save() {
-  message.value = ''
-  isError.value = false
+function cleanPayload() {
+  return Object.fromEntries(
+    Object.entries(payload).filter(([, value]) => value !== undefined && value !== null && value !== ''),
+  )
+}
 
-  if (!newName.value.trim() || !newEmail.value.trim()) {
-    message.value = 'Warning: Name and email are required.'
-    isError.value = true
-    return
-  }
-
-  isSaving.value = true
+async function createOrReplace() {
+  error.value = ''
+  success.value = ''
   try {
-    await designateCoordinator({
-      coordinatorName: newName.value.trim(),
-      email: newEmail.value.trim(),
-      department: deptId,
-    })
-    showChange.value = false
-    newName.value = ''
-    newEmail.value = ''
-    await load()
-    message.value = 'Coordinator updated.'
-  } catch (err: any) {
-    message.value = err.message || 'Failed to update.'
-    isError.value = true
-  } finally {
-    isSaving.value = false
+    await designateCoordinator(unitId.value, cleanPayload())
+    success.value = 'Coordinator designated successfully.'
+  } catch (e: any) {
+    error.value = e.message || 'Designate failed.'
+  }
+}
+
+async function update() {
+  error.value = ''
+  success.value = ''
+  try {
+    await updateCoordinator(unitId.value, cleanPayload())
+    success.value = 'Coordinator updated successfully.'
+  } catch (e: any) {
+    error.value = e.message || 'Update failed.'
   }
 }
 
 async function remove() {
-  if (!confirm('Remove the coordinator from this department?')) return
-
-  isRemoving.value = true
-  message.value = ''
+  if (!window.confirm('Remove coordinator from this unit?')) return
+  error.value = ''
+  success.value = ''
   try {
-    await removeCoordinator(deptId)
-    await load()
-    message.value = 'Coordinator removed.'
-  } catch (err: any) {
-    message.value = err.message || 'Failed to remove.'
-    isError.value = true
-  } finally {
-    isRemoving.value = false
+    await removeCoordinator(unitId.value)
+    success.value = 'Coordinator removed successfully.'
+  } catch (e: any) {
+    error.value = e.message || 'Remove failed.'
   }
 }
 
-function goBack() { router.back() }
-function goHome() { router.push('/main') }
+async function loadUnits() {
+  try {
+    units.value = await getOrgTree()
+  } catch (e: any) {
+    error.value = e.message || 'Failed to load organization units.'
+  }
+}
+
+onMounted(loadUnits)
 </script>
 
 <style scoped>
-.header { display: flex; justify-content: space-between; align-items: center; }
-
-.info-box {
-  margin-top: 22px; padding: 16px;
-  background: #f9fafb; border-radius: 8px;
-}
-.info-box p { margin: 4px 0; }
-
-h2 { margin-top: 24px; font-size: 17px; }
-.actions-row { display: flex; gap: 10px; margin-top: 14px; }
-
-.change-form {
-  margin-top: 18px; padding: 16px;
-  background: #f9fafb; border-radius: 8px;
-  max-width: 500px;
-}
-.form-item { margin-bottom: 12px; }
-label { display: block; font-weight: 600; margin-bottom: 6px; }
-input {
-  width: 100%; padding: 10px; box-sizing: border-box;
-  border: 1px solid #d1d5db; border-radius: 6px;
-}
-
-.buttons { margin-top: 22px; }
-.message { margin-top: 14px; color: #047857; }
-.error { color: #dc2626; }
-.loading { color: #6b7280; padding: 30px; text-align: center; }
+.page { max-width: 1000px; margin: 0 auto; padding: 24px; }
+.card { margin-top: 16px; padding: 18px; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; display: grid; gap: 12px; }
+label { display: grid; gap: 6px; font-weight: 600; }
+input { padding: 9px 10px; border: 1px solid #cbd5e1; border-radius: 8px; }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; }
+button { width: fit-content; padding: 8px 14px; border: 1px solid #bbb; border-radius: 8px; background: #fff; cursor: pointer; }
+.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+.danger { color: #b42318; border-color: #f3b8b2; }
+.table { width: 100%; border-collapse: collapse; }
+th, td { border: 1px solid #e5e7eb; padding: 9px; text-align: left; }
+th { background: #f8fafc; }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: #f8fafc; }
+.error { color: #b42318; }
+.success { color: #087443; }
+.empty { text-align: center; color: #777; }
+.muted, .note { color: #666; }
+.note { margin-top: 16px; font-size: 13px; }
 </style>
