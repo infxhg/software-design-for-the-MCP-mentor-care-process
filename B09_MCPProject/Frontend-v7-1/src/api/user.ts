@@ -1,170 +1,540 @@
-import { get, post, unwrap, type QueryParams } from './request'
+import { get, post, put, unwrap } from './request'
+import type { Role } from '../types'
 
-export type FrontendRole = 'student' | 'mentor' | 'coordinator' | 'consultant' | 'admin' | 'support'
+export type FrontendRole = Role
+
+type AnyRecord = Record<string, any>
 
 export interface UserAccount {
-  id: string
-  username: string
-  passwordHash?: string | null
-  realName?: string | null
-  phone?: string | null
-  email?: string | null
-  status?: number
-  isDeleted?: number
-  createTime?: string | null
-  updateTime?: string | null
-  [key: string]: any
+  userId?: string | number
+  id?: string | number
+  username?: string
+  account?: string
+  realName?: string
+  name?: string
+  email?: string
+  phone?: string
+  role?: FrontendRole
+  roles?: string[]
+  status?: string | number
 }
 
-export type UserEntity = UserAccount
-
-export interface UserInfoData {
-  user: UserAccount
-  roles: string[]
-  permissions: string[]
-  orgUnits?: any[]
-  [key: string]: any
+export interface UserEntity extends UserAccount {
+  token?: string
 }
 
-export type UserInfoDTO = UserInfoData
+export interface UserInfoData extends UserAccount {
+  roles?: string[]
+}
+
+export interface UserInfoDTO extends UserAccount {
+  roles?: string[]
+}
 
 export interface FeedbackItem {
-  id?: string
-  feedbackId?: string
-  userId?: string
+  feedbackId: string
+  id?: string | number
+  userId?: string | number
+  fromUserId?: string | number
   username?: string
+  fromUser?: string
+  fromRole?: string
+  role?: string
   content: string
+  feedbackContent?: string
   reply?: string
+  replyContent?: string
   status?: string
+  submittedAt?: string
   createTime?: string
+  createdAt?: string
   updateTime?: string
-  [key: string]: any
+  updatedAt?: string
 }
 
 export interface OperationLog {
-  id: string
-  userId: string
-  username: string
-  action: string
-  detail?: string
+  logId?: string | number
+  id?: string | number
+  userId?: string | number
+  username?: string
+  operation?: string
+  action?: string
   module?: string
-  createTime: string
-  [key: string]: any
+  detail?: string
+  ip?: string
+  createTime?: string
+  createdAt?: string
 }
 
-export type UserLogItem = OperationLog
+export interface UserLogItem extends OperationLog {}
 
-export function mapBackendRole(roles: string[] = []): FrontendRole {
-  const upper = roles.map((role) => String(role).toUpperCase())
+function asArray(value: unknown): AnyRecord[] {
+  if (Array.isArray(value)) return value as AnyRecord[]
 
-  if (upper.some((role) => role.includes('ADMIN'))) return 'admin'
-  if (upper.some((role) => role.includes('SUPPORT'))) return 'support'
-  if (upper.some((role) => role.includes('FACULTY') || role.includes('CONSULTANT'))) return 'consultant'
-  if (upper.some((role) => role.includes('COORDINATOR') || role.includes('MCP'))) return 'coordinator'
-  if (upper.some((role) => role.includes('MENTOR'))) return 'mentor'
+  const obj = value as AnyRecord | null | undefined
+  if (!obj || typeof obj !== 'object') return []
+
+  if (Array.isArray(obj.records)) return obj.records
+  if (Array.isArray(obj.list)) return obj.list
+  if (Array.isArray(obj.content)) return obj.content
+  if (Array.isArray(obj.items)) return obj.items
+  if (Array.isArray(obj.data)) return obj.data
+
+  return []
+}
+
+function normalizeApiData<T>(response: unknown): T {
+  return unwrap(response as any) as T
+}
+
+async function callFirst<T>(calls: Array<() => Promise<unknown>>): Promise<T> {
+  let lastError: unknown
+
+  for (const call of calls) {
+    try {
+      const response = await call()
+      return normalizeApiData<T>(response)
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw lastError
+}
+
+function getStoredUserInfo(): AnyRecord {
+  try {
+    const raw = localStorage.getItem('userInfo')
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
+}
+
+function getStoredUserId(): string {
+  const userInfo = getStoredUserInfo()
+  return String(
+      userInfo.userId ??
+      userInfo.id ??
+      userInfo.accountId ??
+      localStorage.getItem('userId') ??
+      localStorage.getItem('username') ??
+      '',
+  )
+}
+
+function getStoredUsername(): string {
+  const userInfo = getStoredUserInfo()
+  return String(
+      userInfo.username ??
+      userInfo.account ??
+      userInfo.realName ??
+      userInfo.name ??
+      localStorage.getItem('username') ??
+      '',
+  )
+}
+
+function getStoredRole(): string {
+  return String(localStorage.getItem('role') || getStoredUserInfo().role || '')
+}
+
+function normalizeStatus(status: unknown): string {
+  const value = String(status ?? '').trim()
+  if (!value) return 'PENDING'
+
+  const upper = value.toUpperCase()
+  if (upper === 'PENDING' || upper === 'UNREPLIED' || upper === 'OPEN') return 'PENDING'
+  if (upper === 'REPLIED' || upper === 'ANSWERED') return 'REPLIED'
+  if (upper === 'CLOSED' || upper === 'RESOLVED') return 'CLOSED'
+
+  return upper
+}
+
+function normalizeFeedbackItem(raw: AnyRecord): FeedbackItem {
+  const feedbackId = String(
+      raw.feedbackId ??
+      raw.id ??
+      raw.feedback_id ??
+      raw.questionId ??
+      raw.messageId ??
+      '',
+  )
+
+  return {
+    ...raw,
+    feedbackId,
+    id: raw.id ?? raw.feedbackId,
+    userId: raw.userId ?? raw.fromUserId ?? raw.createdBy,
+    fromUserId: raw.fromUserId ?? raw.userId ?? raw.createdBy,
+    username: raw.username ?? raw.fromUser ?? raw.userName ?? raw.realName,
+    fromUser: raw.fromUser ?? raw.username ?? raw.userName ?? raw.realName ?? raw.userId,
+    fromRole: raw.fromRole ?? raw.role ?? raw.userRole,
+    role: raw.role ?? raw.fromRole ?? raw.userRole,
+    content: String(raw.content ?? raw.feedbackContent ?? raw.description ?? raw.message ?? ''),
+    feedbackContent: raw.feedbackContent ?? raw.content ?? raw.description ?? raw.message,
+    reply: raw.reply ?? raw.replyContent ?? raw.answer,
+    replyContent: raw.replyContent ?? raw.reply ?? raw.answer,
+    status: normalizeStatus(raw.status),
+    submittedAt: raw.submittedAt ?? raw.createTime ?? raw.createdAt,
+    createTime: raw.createTime ?? raw.submittedAt ?? raw.createdAt,
+    createdAt: raw.createdAt ?? raw.createTime ?? raw.submittedAt,
+    updateTime: raw.updateTime ?? raw.updatedAt,
+    updatedAt: raw.updatedAt ?? raw.updateTime,
+  }
+}
+
+function roleValueToText(value: unknown): string {
+  if (value === null || value === undefined) return ''
+
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value)
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(roleValueToText).filter(Boolean).join(' ')
+  }
+
+  if (typeof value === 'object') {
+    const raw = value as AnyRecord
+    return String(
+      raw.roleCode ??
+        raw.role_code ??
+        raw.code ??
+        raw.roleName ??
+        raw.role_name ??
+        raw.name ??
+        raw.authority ??
+        raw.authorities ??
+        raw.role ??
+        raw.roles ??
+        '',
+    )
+  }
+
+  return ''
+}
+
+export function mapBackendRole(roles?: unknown): FrontendRole {
+  const list = Array.isArray(roles) ? roles : roles ? [roles] : []
+  const normalized = list
+    .flatMap((item) => roleValueToText(item).split(/[\s,;|]+/))
+    .map((r) => r.trim().toUpperCase())
+    .filter(Boolean)
+
+  if (normalized.some((r) => r.includes('ADMIN'))) return 'admin'
+  if (normalized.some((r) => r.includes('SUPPORT'))) return 'support'
+  if (normalized.some((r) => r.includes('CONSULTANT') || r.includes('FACULTY'))) return 'consultant'
+  if (normalized.some((r) => r.includes('COORDINATOR') || r.includes('MCP'))) return 'coordinator'
+  if (normalized.some((r) => r.includes('MENTOR'))) return 'mentor'
   return 'student'
 }
 
-export async function loginApi(username: string, password: string): Promise<string> {
-  const res = await get<string>('/api/user/login', { username, password }, { skipAuth: true })
-  return unwrap(res)
+function extractToken(data: unknown): string | null {
+  if (typeof data === 'string') {
+    const token = data.trim().replace(/^Bearer\s+/i, '')
+    return token || null
+  }
+
+  if (!data || typeof data !== 'object') return null
+
+  const queue: AnyRecord[] = [data as AnyRecord]
+  const tokenKeys = [
+    'token',
+    'accessToken',
+    'access_token',
+    'jwt',
+    'jwtToken',
+    'authorization',
+    'Authorization',
+    'bearerToken',
+    'bearer',
+    'idToken',
+  ]
+
+  while (queue.length > 0) {
+    const current = queue.shift()!
+
+    for (const key of tokenKeys) {
+      const value = current[key]
+      if (typeof value === 'string' || typeof value === 'number') {
+        const token = String(value).trim().replace(/^Bearer\s+/i, '')
+        if (token) return token
+      }
+    }
+
+    for (const value of Object.values(current)) {
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        queue.push(value as AnyRecord)
+      }
+    }
+  }
+
+  return null
 }
 
-export async function getUserInfoApi(username?: string): Promise<UserInfoData> {
-  const res = await get<UserInfoData>('/api/user/userInfo', username ? { username } : undefined)
-  return unwrap(res)
+function clearLoginStateBeforeLogin(): void {
+  localStorage.removeItem('token')
+  localStorage.removeItem('role')
+  localStorage.removeItem('userInfo')
+  localStorage.removeItem('userId')
 }
 
-export async function getInternalUserInfo(userId: string): Promise<UserAccount | null> {
-  const res = await get<UserAccount>('/internal/userInfo', { userId })
-  return unwrap(res) || null
+export async function loginApi(account: string, password: string): Promise<string> {
+  const trimmedAccount = account.trim()
+
+  if (!trimmedAccount || !password) {
+    throw new Error('Please enter account and password.')
+  }
+
+  clearLoginStateBeforeLogin()
+
+  const apiGet = get as unknown as (
+    url: string,
+    params?: AnyRecord,
+    options?: AnyRecord,
+  ) => Promise<unknown>
+  const apiPost = post as unknown as (
+    url: string,
+    body?: AnyRecord,
+    options?: AnyRecord,
+  ) => Promise<unknown>
+
+  const skipAuth = { skipAuth: true }
+  const usernamePayload = {
+    username: trimmedAccount,
+    password,
+  }
+  const accountPayload = {
+    account: trimmedAccount,
+    password,
+  }
+  const combinedPayload = {
+    account: trimmedAccount,
+    username: trimmedAccount,
+    password,
+  }
+
+  const data = await callFirst<string | AnyRecord>([
+    () => apiGet('/api/user/login', usernamePayload, skipAuth),
+    () => apiGet('/api/user/login', accountPayload, skipAuth),
+    () => apiPost('/api/user/login', usernamePayload, skipAuth),
+    () => apiPost('/api/user/login', accountPayload, skipAuth),
+    () => apiPost('/api/user/login', combinedPayload, skipAuth),
+  ])
+
+  const token = extractToken(data)
+
+  if (!token) {
+    throw new Error('Login succeeded but the backend response does not contain a token.')
+  }
+
+  localStorage.setItem('token', token)
+  localStorage.setItem('username', trimmedAccount)
+
+  return token
 }
 
-export const getUserInfoByIdApi = getInternalUserInfo
+export async function getUserInfoApi(account?: string): Promise<UserInfoDTO> {
+  const trimmedAccount = account?.trim()
+  const params = trimmedAccount
+    ? {
+        account: trimmedAccount,
+        username: trimmedAccount,
+      }
+    : undefined
 
-export async function registerSendCode(emailAccount: string): Promise<any> {
-  const res = await post<any>(
-    '/api/user/register',
-    undefined,
-    { params: { emailAccount }, skipAuth: true } as any,
-  )
-  return unwrap(res)
+  return callFirst<UserInfoDTO>([
+    () => get('/api/user/userInfo'),
+    ...(params ? [() => get('/api/user/userInfo', params)] : []),
+  ])
+}
+
+export async function getInternalUserInfo(): Promise<UserInfoDTO> {
+  return callFirst<UserInfoDTO>([
+    () => get('/internal/userInfo'),
+    () => get('/api/internal/userInfo'),
+  ])
+}
+
+export async function getUserInfoByIdApi(userId: string | number): Promise<UserInfoDTO> {
+  return callFirst<UserInfoDTO>([
+    () => get(`/api/user/${userId}`),
+    () => get('/api/user/info', { userId }),
+    () => get('/api/user/userInfo', { userId }),
+  ])
+}
+
+export async function registerSendCode(email: string): Promise<unknown> {
+  return callFirst<unknown>([
+    () => post('/api/user/register/sendCode', { email }),
+    () => post('/api/user/sendRegisterCode', { email }),
+    () => get('/api/user/register/sendCode', { email }),
+  ])
 }
 
 export const sendRegisterCode = registerSendCode
-export const sendRegisterCodeByQuery = registerSendCode
 
-export async function registerVerify(payload: {
-  user: {
-    email: string
-    username: string
-    passwordHash: string
-  }
-  verificationCode: string
-}): Promise<any> {
-  const res = await post<any>('/api/user/register/verify', payload, { skipAuth: true })
-  return unwrap(res)
+export async function sendRegisterCodeByQuery(email: string): Promise<unknown> {
+  return callFirst<unknown>([
+    () => get('/api/user/register/sendCode', { email }),
+    () => get('/api/user/sendRegisterCode', { email }),
+  ])
 }
 
-export async function updateUserInfo(payload: Partial<UserAccount>): Promise<any> {
-  const res = await post<any>('/api/user/updateInfo', payload)
-  return unwrap(res)
+export async function registerVerify(payload: AnyRecord): Promise<unknown> {
+  return callFirst<unknown>([
+    () => post('/api/user/register/verify', payload),
+    () => post('/api/user/registerVerify', payload),
+  ])
+}
+
+export async function updateUserInfo(payload: AnyRecord): Promise<UserInfoDTO> {
+  return callFirst<UserInfoDTO>([
+    () => put('/api/user/updateInfo', payload),
+    () => put('/api/user/userInfo', payload),
+  ])
 }
 
 export async function submitFeedback(content: string): Promise<FeedbackItem> {
-  const res = await post<FeedbackItem>('/api/user/feedback', { content })
-  return unwrap(res)
-}
+  const trimmed = content.trim()
 
-export async function listFeedback(): Promise<FeedbackItem[]> {
-  const res = await get<FeedbackItem[]>('/api/user/feedback')
-  return unwrap(res) || []
-}
-
-export async function getFeedbackDetail(feedbackId: string): Promise<FeedbackItem> {
-  const list = await listFeedback()
-  return list.find((item) => item.id === feedbackId || item.feedbackId === feedbackId) || {
-    id: feedbackId,
-    content: '',
+  if (!trimmed) {
+    throw new Error('Feedback content cannot be empty.')
   }
+
+  const payload = {
+    content: trimmed,
+    feedbackContent: trimmed,
+    description: trimmed,
+    userId: getStoredUserId(),
+    fromUserId: getStoredUserId(),
+    username: getStoredUsername(),
+    fromUser: getStoredUsername(),
+    role: getStoredRole(),
+    fromRole: getStoredRole(),
+  }
+
+  const data = await callFirst<AnyRecord>([
+    () => post('/api/feedback', payload),
+    () => post('/api/user/feedback', payload),
+    () => post('/api/user/feedback/submit', payload),
+  ])
+
+  return normalizeFeedbackItem(data)
 }
 
-export async function replyFeedback(_feedbackId: string, _reply: string): Promise<void> {
-  throw new Error('Feedback reply API is not provided in current OpenAPI.')
+export async function listFeedback(params: AnyRecord = {}): Promise<FeedbackItem[]> {
+  const data = await callFirst<unknown>([
+    () => get('/api/support/feedback', params),
+    () => get('/api/user/feedback', params),
+    () => get('/api/feedback', params),
+  ])
+
+  return asArray(data).map(normalizeFeedbackItem)
 }
 
-export async function updateFeedbackStatus(_feedbackId: string, _status: string): Promise<void> {
-  throw new Error('Feedback status API is not provided in current OpenAPI.')
+export async function getFeedbackDetail(feedbackId: string | number): Promise<FeedbackItem> {
+  const data = await callFirst<AnyRecord>([
+    () => get(`/api/support/feedback/${feedbackId}`),
+    () => get(`/api/user/feedback/${feedbackId}`),
+    () => get(`/api/feedback/${feedbackId}`),
+  ])
+
+  return normalizeFeedbackItem(data)
 }
 
-export async function listLogs(params?: {
-  userId?: string
-  username?: string
-  action?: string
-  startTime?: string
-  endTime?: string
-}): Promise<OperationLog[]> {
-  const res = await get<OperationLog[]>('/api/user/logs', params as QueryParams)
-  return unwrap(res) || []
+export async function replyFeedback(
+    feedbackId: string | number,
+    replyContent: string,
+): Promise<FeedbackItem> {
+  const trimmed = replyContent.trim()
+
+  if (!trimmed) {
+    throw new Error('Reply content cannot be empty.')
+  }
+
+  const payload = {
+    content: trimmed,
+    reply: trimmed,
+    replyContent: trimmed,
+    answer: trimmed,
+    status: 'REPLIED',
+  }
+
+  const data = await callFirst<AnyRecord>([
+    () => post(`/api/support/feedback/${feedbackId}/reply`, payload),
+    () => put(`/api/support/feedback/${feedbackId}/reply`, payload),
+    () => post(`/api/user/feedback/${feedbackId}/reply`, payload),
+    () => put(`/api/user/feedback/${feedbackId}/reply`, payload),
+    () => post(`/api/feedback/${feedbackId}/reply`, payload),
+    () => put(`/api/feedback/${feedbackId}/reply`, payload),
+  ])
+
+  return normalizeFeedbackItem({
+    feedbackId,
+    ...data,
+    replyContent: data.replyContent ?? data.reply ?? trimmed,
+    reply: data.reply ?? data.replyContent ?? trimmed,
+    status: data.status ?? 'REPLIED',
+  })
 }
 
-export async function listFacultyLogs(params?: {
-  action?: string
-  startTime?: string
-  endTime?: string
-  studentIds?: string[]
-}): Promise<OperationLog[]> {
-  const res = await get<OperationLog[]>('/api/user/logs/faculty', params as QueryParams)
-  return unwrap(res) || []
+export async function updateFeedbackStatus(
+    feedbackId: string | number,
+    status: string,
+): Promise<FeedbackItem> {
+  const payload = {
+    status,
+  }
+
+  const data = await callFirst<AnyRecord>([
+    () => put(`/api/support/feedback/${feedbackId}/status`, payload),
+    () => put(`/api/user/feedback/${feedbackId}/status`, payload),
+    () => put(`/api/feedback/${feedbackId}/status`, payload),
+    () => put(`/api/support/feedback/${feedbackId}`, payload),
+    () => put(`/api/user/feedback/${feedbackId}`, payload),
+    () => put(`/api/feedback/${feedbackId}`, payload),
+  ])
+
+  return normalizeFeedbackItem({
+    feedbackId,
+    ...data,
+    status: data.status ?? status,
+  })
 }
 
-export async function getLogsByUser(userId: string): Promise<OperationLog[]> {
-  return listLogs({ userId })
+export async function listLogs(params: AnyRecord = {}): Promise<OperationLog[]> {
+  const data = await callFirst<unknown>([
+    () => get('/api/user/logs', params),
+  ])
+
+  return asArray(data) as OperationLog[]
 }
 
-export async function listAllStudents(): Promise<UserAccount[]> {
-  const res = await get<UserAccount[]>('/api/user/students/all')
-  return unwrap(res) || []
+export async function listFacultyLogs(params: AnyRecord = {}): Promise<OperationLog[]> {
+  const data = await callFirst<unknown>([
+    () => get('/api/user/logs/faculty', params),
+  ])
+
+  return asArray(data) as OperationLog[]
+}
+
+export async function getLogsByUser(userId: string | number): Promise<OperationLog[]> {
+  const data = await callFirst<unknown>([
+    () => get(`/api/user/logs/${userId}`),
+    () => get('/api/user/logs', { userId }),
+  ])
+
+  return asArray(data) as OperationLog[]
+}
+
+export async function listAllStudents(params: AnyRecord = {}): Promise<UserAccount[]> {
+  const data = await callFirst<unknown>([
+    () => get('/api/user/students/all', params),
+  ])
+
+  return asArray(data) as UserAccount[]
 }
 
 export const getAllStudents = listAllStudents

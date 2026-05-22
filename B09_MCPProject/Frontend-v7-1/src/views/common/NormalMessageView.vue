@@ -162,15 +162,6 @@
                   >
                     Copy ID
                   </button>
-
-                  <button
-                    v-if="msg.messageId"
-                    class="text-button"
-                    type="button"
-                    @click="markRead(msg)"
-                  >
-                    Detail
-                  </button>
                 </div>
               </div>
             </article>
@@ -210,7 +201,6 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  getMessageDetail,
   getUnreadMessageCount,
   listMyMessages,
   sendNormalMessage,
@@ -435,28 +425,6 @@ function addLocalSentMessage(receiverIds: string[], messageContent: string) {
 
   appendLocalSentMessage(localMessage)
   messages.value = mergeMessages(messages.value, [localMessage]).sort(sortByTime)
-}
-
-async function markRead(msg: MessageForView) {
-  if (msg.isLocalSent || !msg.messageId) return
-
-  try {
-    const detail = await getMessageDetail(msg.messageId)
-    const index = messages.value.findIndex((item) => item.localKey === msg.localKey)
-
-    if (index >= 0) {
-      messages.value[index] = {
-        ...messages.value[index],
-        ...detail,
-        localKey: messages.value[index].localKey,
-        read: true,
-      }
-    }
-
-    await loadUnreadCount()
-  } catch {
-    // Keep the page quiet if detail is not available.
-  }
 }
 
 function replyTo(senderId: string) {

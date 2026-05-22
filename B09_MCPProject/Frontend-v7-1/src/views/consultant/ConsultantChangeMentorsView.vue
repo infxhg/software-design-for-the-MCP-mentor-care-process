@@ -1,113 +1,372 @@
 <template>
-  <section class="page">
+  <div class="page">
     <h1>Change Mentors</h1>
-    <p class="muted">Search a group, then assign a new mentor.</p>
+    <p class="desc">Search a group, then assign a new mentor.</p>
 
-    <div class="card">
-      <label>
-        Group ID
-        <input v-model.trim="groupId" placeholder="e.g. group_a1" />
-      </label>
-      <button class="primary" :disabled="loading || !groupId" @click="loadGroup">Search Group</button>
-    </div>
+    <section class="card">
+      <label>Group ID</label>
+      <input
+        v-model.trim="groupId"
+        placeholder="e.g. group_a1"
+        @keyup.enter="handleSearchGroup"
+      />
+      <button :disabled="loadingGroup || !groupId" @click="handleSearchGroup">
+        {{ loadingGroup ? 'Searching...' : 'Search Group' }}
+      </button>
+    </section>
 
-    <p v-if="error" class="error">{{ error }}</p>
-
-    <div v-if="group" class="card">
+    <section v-if="group" class="card">
       <h2>Group</h2>
-      <p><strong>Group ID:</strong> {{ group.groupId }}</p>
-      <p><strong>Name:</strong> {{ group.name || '-' }}</p>
-      <p><strong>Current Mentor ID:</strong> {{ group.mentorId || '-' }}</p>
 
-      <label>
-        Search Mentor
-        <input v-model.trim="mentorKeyword" placeholder="mentor name / email / username" @keyup.enter="loadMentors" />
-      </label>
-      <button :disabled="mentorLoading" @click="loadMentors">Load Mentors</button>
+      <p>
+        <strong>Group ID:</strong>
+        {{ group.groupId || group.id || '-' }}
+      </p>
 
-      <label>
-        New Mentor
-        <select v-model="selectedMentorId">
+      <p>
+        <strong>Name:</strong>
+        {{ group.name || '-' }}
+      </p>
+
+      <p>
+        <strong>Current Mentor ID:</strong>
+        {{ currentMentorId || '-' }}
+      </p>
+
+      <div class="block">
+        <label>Search Mentor</label>
+        <div class="search-row">
+          <input
+            v-model.trim="mentorKeyword"
+            placeholder="e.g. test_mentor_01"
+            @keyup.enter="handleSearchMentor"
+          />
+          <button :disabled="loadingMentors || !mentorKeyword" @click="handleSearchMentor">
+            {{ loadingMentors ? 'Searching...' : 'Search Mentor' }}
+          </button>
+        </div>
+      </div>
+
+      <div class="block">
+        <label>New Mentor</label>
+
+        <select v-model="newMentorId">
           <option value="">Please select</option>
-          <option v-for="m in mentors" :key="m.mentorId" :value="m.mentorId">
-            {{ m.mentorName }} / {{ m.email }} / {{ m.departmentName }}
+          <option
+            v-for="mentor in mentorOptions"
+            :key="mentor.mentorId"
+            :value="mentor.mentorId"
+          >
+            {{ mentorLabel(mentor) }}
           </option>
         </select>
-      </label>
 
-      <button class="primary" :disabled="saving || !selectedMentorId" @click="save">
+        <p class="hint">
+          Selected mentor ID:
+          <strong>{{ newMentorId || '-' }}</strong>
+        </p>
+      </div>
+
+      <button :disabled="saving || !canSave" @click="handleSaveChange">
         {{ saving ? 'Saving...' : 'Save Change' }}
       </button>
-    </div>
-  </section>
+    </section>
+
+    <p v-if="message" class="message" :class="{ error: isError }">
+      {{ message }}
+    </p>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { changeGroupMentor, searchGroup } from '../../api/mentoring'
-import { searchMentors, type MentorInfo } from '../../api/org'
-import type { GroupInfo } from '../../api/mentoring'
+import { computed, ref } from 'vue'
+import {
+  changeGroupMentor,
+  searchGroup,
+  type GroupInfo,
+} from '../../api/consultant'
+import {
+  searchMentors,
+  type MentorInfo,
+} from '../../api/org'
 
-const groupId = ref('')
+const groupId = ref('group_a1')
 const group = ref<GroupInfo | null>(null)
-const mentors = ref<MentorInfo[]>([])
-const selectedMentorId = ref('')
+
 const mentorKeyword = ref('')
-const loading = ref(false)
-const mentorLoading = ref(false)
+const mentorOptions = ref<MentorInfo[]>([])
+const newMentorId = ref('')
+
+const loadingGroup = ref(false)
+const loadingMentors = ref(false)
 const saving = ref(false)
-const error = ref('')
 
-async function loadGroup() {
-  loading.value = true
-  error.value = ''
+const message = ref('')
+const isError = ref(false)
+
+const currentMentorId = computed(() => {
+  const g: any = group.value || {}
+
+  return (
+    g.mentorId ||
+    g.currentMentorId ||
+    g.currentMentor ||
+    g.mentor?.mentorId ||
+    g.mentor?.id ||
+    ''
+  )
+})
+
+const canSave = computed(() => {
+  return Boolean(group.value && newMentorId.value && newMentorId.value !== currentMentorId.value)
+})
+
+async function handleSearchGroup() {
+  clearMessage()
+
+  if (!groupId.value) {
+    showError('Please enter a group ID.')
+    return
+  }
+
+  loadingGroup.value = true
   group.value = null
+  mentorOptions.value = []
+  newMentorId.value = ''
+  mentorKeyword.value = ''
+
   try {
-    const data = await searchGroup(groupId.value)
-    group.value = data.group || null
-    selectedMentorId.value = ''
-    if (!group.value) error.value = 'No group found.'
-  } catch (e: any) {
-    error.value = e.message || 'Failed to load group.'
+    const result: any = await searchGroup(groupId.value)
+    const foundGroup = result?.group || result
+
+    if (!foundGroup || !(foundGroup.groupId || foundGroup.id)) {
+      showError('Group not found.')
+      return
+    }
+
+    group.value = foundGroup
+  } catch (err: any) {
+    showError(err?.message || 'Failed to search group.')
   } finally {
-    loading.value = false
+    loadingGroup.value = false
   }
 }
 
-async function loadMentors() {
-  mentorLoading.value = true
-  error.value = ''
+async function handleSearchMentor() {
+  clearMessage()
+
+  if (!mentorKeyword.value) {
+    showError('Please enter a mentor ID or name.')
+    return
+  }
+
+  loadingMentors.value = true
+  mentorOptions.value = []
+  newMentorId.value = ''
+
   try {
-    mentors.value = await searchMentors(mentorKeyword.value)
-  } catch (e: any) {
-    error.value = e.message || 'Failed to load mentors.'
+    const list = await searchMentors(mentorKeyword.value)
+
+    mentorOptions.value = list
+      .map(normalizeMentor)
+      .filter((mentor) => mentor.mentorId)
+
+    if (mentorOptions.value.length === 0) {
+      showError('No mentor found.')
+      return
+    }
+
+    // 关键修复：只有一个结果时自动选中，不再让下面 select 看起来“空白不能用”
+    if (mentorOptions.value.length === 1) {
+      newMentorId.value = mentorOptions.value[0].mentorId
+    }
+  } catch (err: any) {
+    showError(err?.message || 'Failed to search mentor.')
   } finally {
-    mentorLoading.value = false
+    loadingMentors.value = false
   }
 }
 
-async function save() {
-  if (!group.value || !selectedMentorId.value) return
+async function handleSaveChange() {
+  clearMessage()
+
+  if (!group.value) {
+    showError('Please search a group first.')
+    return
+  }
+
+  if (!newMentorId.value) {
+    showError('Please select a new mentor.')
+    return
+  }
+
+  if (newMentorId.value === currentMentorId.value) {
+    showError('The new mentor is the same as the current mentor.')
+    return
+  }
+
   saving.value = true
-  error.value = ''
+
   try {
-    group.value = await changeGroupMentor(group.value.groupId, selectedMentorId.value)
-    alert('Mentor changed successfully.')
-  } catch (e: any) {
-    error.value = e.message || 'Failed to change mentor.'
+    const realGroupId = String((group.value as any).groupId || (group.value as any).id)
+    const updated: any = await changeGroupMentor(realGroupId, newMentorId.value)
+
+    group.value = {
+      ...group.value,
+      ...updated,
+      groupId: updated?.groupId || realGroupId,
+      mentorId: updated?.mentorId || newMentorId.value,
+      currentMentorId: updated?.currentMentorId || newMentorId.value,
+    } as any
+
+    showSuccess('Mentor changed successfully.')
+    newMentorId.value = ''
+    mentorKeyword.value = ''
+    mentorOptions.value = []
+  } catch (err: any) {
+    showError(err?.message || 'Failed to change mentor.')
   } finally {
     saving.value = false
   }
 }
+
+function normalizeMentor(raw: any): MentorInfo {
+  const mentorId = String(raw?.mentorId || raw?.id || raw?.userId || raw?.username || '')
+  const mentorName = String(raw?.mentorName || raw?.name || raw?.realName || raw?.username || mentorId)
+
+  return {
+    ...raw,
+    id: raw?.id || mentorId,
+    mentorId,
+    mentorName,
+    name: raw?.name || mentorName,
+    email: raw?.email || '',
+    office: raw?.office || '',
+    groupId: raw?.groupId || '',
+  }
+}
+
+function mentorLabel(mentor: MentorInfo): string {
+  const name = mentor.mentorName || mentor.name || mentor.mentorId
+  const email = mentor.email || ''
+  const groupName = (mentor as any).groupName || mentor.groupId || ''
+
+  return [name, email, groupName].filter(Boolean).join(' / ')
+}
+
+function clearMessage() {
+  message.value = ''
+  isError.value = false
+}
+
+function showSuccess(text: string) {
+  message.value = text
+  isError.value = false
+}
+
+function showError(text: string) {
+  message.value = text
+  isError.value = true
+}
 </script>
 
 <style scoped>
-.page { max-width: 900px; margin: 0 auto; padding: 24px; }
-.card { margin-top: 16px; padding: 18px; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; display: grid; gap: 12px; }
-label { display: grid; gap: 6px; font-weight: 600; }
-input, select { padding: 9px 10px; border: 1px solid #cbd5e1; border-radius: 8px; }
-button { width: fit-content; padding: 8px 14px; border: 1px solid #bbb; border-radius: 8px; background: #fff; cursor: pointer; }
-.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
-.error { color: #b42318; }
-.muted { color: #666; }
+.page {
+  max-width: 980px;
+  margin: 0 auto;
+}
+
+h1 {
+  margin: 0 0 12px;
+  color: #111827;
+  font-size: 32px;
+}
+
+.desc {
+  margin: 0 0 18px;
+  color: #4b5563;
+}
+
+.card {
+  margin-bottom: 16px;
+  padding: 18px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+}
+
+h2 {
+  margin: 0 0 22px;
+  color: #111827;
+  font-size: 26px;
+}
+
+label {
+  display: block;
+  margin-bottom: 8px;
+  color: #111827;
+  font-weight: 700;
+}
+
+input,
+select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #fff;
+}
+
+button {
+  margin-top: 12px;
+  padding: 9px 14px;
+  border: none;
+  border-radius: 5px;
+  background: #2563eb;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.search-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: start;
+}
+
+.search-row button {
+  margin-top: 0;
+}
+
+.block {
+  margin-top: 18px;
+}
+
+.hint {
+  margin: 8px 0 0;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.message {
+  margin-top: 14px;
+  color: #047857;
+}
+
+.message.error {
+  color: #dc2626;
+}
+
+@media (max-width: 720px) {
+  .search-row {
+    grid-template-columns: 1fr;
+  }
+}
 </style>
