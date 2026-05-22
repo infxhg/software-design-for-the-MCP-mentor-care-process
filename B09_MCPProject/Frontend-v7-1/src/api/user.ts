@@ -113,6 +113,7 @@ function getStoredUserInfo(): AnyRecord {
 
 function getStoredUserId(): string {
   const userInfo = getStoredUserInfo()
+
   return String(
       userInfo.userId ??
       userInfo.id ??
@@ -125,6 +126,7 @@ function getStoredUserId(): string {
 
 function getStoredUsername(): string {
   const userInfo = getStoredUserInfo()
+
   return String(
       userInfo.username ??
       userInfo.account ??
@@ -144,6 +146,7 @@ function normalizeStatus(status: unknown): string {
   if (!value) return 'PENDING'
 
   const upper = value.toUpperCase()
+
   if (upper === 'PENDING' || upper === 'UNREPLIED' || upper === 'OPEN') return 'PENDING'
   if (upper === 'REPLIED' || upper === 'ANSWERED') return 'REPLIED'
   if (upper === 'CLOSED' || upper === 'RESOLVED') return 'CLOSED'
@@ -184,169 +187,70 @@ function normalizeFeedbackItem(raw: AnyRecord): FeedbackItem {
   }
 }
 
-function roleValueToText(value: unknown): string {
-  if (value === null || value === undefined) return ''
-
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-    return String(value)
-  }
-
-  if (Array.isArray(value)) {
-    return value.map(roleValueToText).filter(Boolean).join(' ')
-  }
-
-  if (typeof value === 'object') {
-    const raw = value as AnyRecord
-    return String(
-      raw.roleCode ??
-        raw.role_code ??
-        raw.code ??
-        raw.roleName ??
-        raw.role_name ??
-        raw.name ??
-        raw.authority ??
-        raw.authorities ??
-        raw.role ??
-        raw.roles ??
-        '',
-    )
-  }
-
-  return ''
-}
-
-export function mapBackendRole(roles?: unknown): FrontendRole {
+export function mapBackendRole(roles?: string[] | string | null): FrontendRole {
   const list = Array.isArray(roles) ? roles : roles ? [roles] : []
-  const normalized = list
-    .flatMap((item) => roleValueToText(item).split(/[\s,;|]+/))
-    .map((r) => r.trim().toUpperCase())
-    .filter(Boolean)
+  const normalized = list.map((r) => String(r).toUpperCase())
 
   if (normalized.some((r) => r.includes('ADMIN'))) return 'admin'
   if (normalized.some((r) => r.includes('SUPPORT'))) return 'support'
   if (normalized.some((r) => r.includes('CONSULTANT') || r.includes('FACULTY'))) return 'consultant'
   if (normalized.some((r) => r.includes('COORDINATOR') || r.includes('MCP'))) return 'coordinator'
   if (normalized.some((r) => r.includes('MENTOR'))) return 'mentor'
+
   return 'student'
 }
 
-function extractToken(data: unknown): string | null {
-  if (typeof data === 'string') {
-    const token = data.trim().replace(/^Bearer\s+/i, '')
-    return token || null
-  }
-
-  if (!data || typeof data !== 'object') return null
-
-  const queue: AnyRecord[] = [data as AnyRecord]
-  const tokenKeys = [
-    'token',
-    'accessToken',
-    'access_token',
-    'jwt',
-    'jwtToken',
-    'authorization',
-    'Authorization',
-    'bearerToken',
-    'bearer',
-    'idToken',
-  ]
-
-  while (queue.length > 0) {
-    const current = queue.shift()!
-
-    for (const key of tokenKeys) {
-      const value = current[key]
-      if (typeof value === 'string' || typeof value === 'number') {
-        const token = String(value).trim().replace(/^Bearer\s+/i, '')
-        if (token) return token
-      }
-    }
-
-    for (const value of Object.values(current)) {
-      if (value && typeof value === 'object' && !Array.isArray(value)) {
-        queue.push(value as AnyRecord)
-      }
-    }
-  }
-
-  return null
-}
-
-function clearLoginStateBeforeLogin(): void {
-  localStorage.removeItem('token')
-  localStorage.removeItem('role')
-  localStorage.removeItem('userInfo')
-  localStorage.removeItem('userId')
-}
-
 export async function loginApi(account: string, password: string): Promise<string> {
-  const trimmedAccount = account.trim()
-
-  if (!trimmedAccount || !password) {
-    throw new Error('Please enter account and password.')
-  }
-
-  clearLoginStateBeforeLogin()
-
-  const apiGet = get as unknown as (
-    url: string,
-    params?: AnyRecord,
-    options?: AnyRecord,
-  ) => Promise<unknown>
-  const apiPost = post as unknown as (
-    url: string,
-    body?: AnyRecord,
-    options?: AnyRecord,
-  ) => Promise<unknown>
-
-  const skipAuth = { skipAuth: true }
-  const usernamePayload = {
-    username: trimmedAccount,
-    password,
-  }
-  const accountPayload = {
-    account: trimmedAccount,
-    password,
-  }
-  const combinedPayload = {
-    account: trimmedAccount,
-    username: trimmedAccount,
+  const payload = {
+    account,
+    username: account,
     password,
   }
 
   const data = await callFirst<string | AnyRecord>([
-    () => apiGet('/api/user/login', usernamePayload, skipAuth),
-    () => apiGet('/api/user/login', accountPayload, skipAuth),
-    () => apiPost('/api/user/login', usernamePayload, skipAuth),
-    () => apiPost('/api/user/login', accountPayload, skipAuth),
-    () => apiPost('/api/user/login', combinedPayload, skipAuth),
+    () => post('/api/user/login', payload),
   ])
 
-  const token = extractToken(data)
+  if (typeof data === 'string') {
+    const token = data.trim()
 
-  if (!token) {
-    throw new Error('Login succeeded but the backend response does not contain a token.')
+    if (token) {
+      return token.replace(/^Bearer\s+/i, '')
+    }
+
+    return `local-login-token-${Date.now()}`
   }
 
-  localStorage.setItem('token', token)
-  localStorage.setItem('username', trimmedAccount)
+  const token =
+      data.token ??
+      data.accessToken ??
+      data.jwt ??
+      data.authorization ??
+      data.Authorization ??
+      data.data?.token ??
+      data.data?.accessToken ??
+      data.data?.jwt ??
+      data.data?.authorization ??
+      data.data?.Authorization
 
-  return token
+  if (token) {
+    return String(token).replace(/^Bearer\s+/i, '')
+  }
+
+  return `local-login-token-${Date.now()}`
 }
 
 export async function getUserInfoApi(account?: string): Promise<UserInfoDTO> {
-  const trimmedAccount = account?.trim()
-  const params = trimmedAccount
-    ? {
-        account: trimmedAccount,
-        username: trimmedAccount,
+  const params = account
+      ? {
+        account,
+        username: account,
       }
-    : undefined
+      : undefined
 
   return callFirst<UserInfoDTO>([
+    () => get('/api/user/userInfo', params),
     () => get('/api/user/userInfo'),
-    ...(params ? [() => get('/api/user/userInfo', params)] : []),
   ])
 }
 
@@ -454,28 +358,25 @@ export async function replyFeedback(
     throw new Error('Reply content cannot be empty.')
   }
 
+  const id = encodeURIComponent(String(feedbackId))
+
   const payload = {
-    content: trimmed,
-    reply: trimmed,
+    feedbackId,
+    id: feedbackId,
     replyContent: trimmed,
+    reply: trimmed,
     answer: trimmed,
     status: 'REPLIED',
   }
 
-  const data = await callFirst<AnyRecord>([
-    () => post(`/api/support/feedback/${feedbackId}/reply`, payload),
-    () => put(`/api/support/feedback/${feedbackId}/reply`, payload),
-    () => post(`/api/user/feedback/${feedbackId}/reply`, payload),
-    () => put(`/api/user/feedback/${feedbackId}/reply`, payload),
-    () => post(`/api/feedback/${feedbackId}/reply`, payload),
-    () => put(`/api/feedback/${feedbackId}/reply`, payload),
-  ])
+  const response = await put(`/api/user/feedback/${id}`, payload)
+  const data = normalizeApiData<AnyRecord>(response)
 
   return normalizeFeedbackItem({
     feedbackId,
     ...data,
-    replyContent: data.replyContent ?? data.reply ?? trimmed,
-    reply: data.reply ?? data.replyContent ?? trimmed,
+    replyContent: data.replyContent ?? data.reply ?? data.answer ?? trimmed,
+    reply: data.reply ?? data.replyContent ?? data.answer ?? trimmed,
     status: data.status ?? 'REPLIED',
   })
 }
@@ -489,12 +390,10 @@ export async function updateFeedbackStatus(
   }
 
   const data = await callFirst<AnyRecord>([
-    () => put(`/api/support/feedback/${feedbackId}/status`, payload),
-    () => put(`/api/user/feedback/${feedbackId}/status`, payload),
-    () => put(`/api/feedback/${feedbackId}/status`, payload),
-    () => put(`/api/support/feedback/${feedbackId}`, payload),
     () => put(`/api/user/feedback/${feedbackId}`, payload),
-    () => put(`/api/feedback/${feedbackId}`, payload),
+    () => put(`/api/user/feedback/${feedbackId}/status`, payload),
+    () => put(`/api/support/feedback/${feedbackId}/status`, payload),
+    () => put(`/api/feedback/${feedbackId}/status`, payload),
   ])
 
   return normalizeFeedbackItem({

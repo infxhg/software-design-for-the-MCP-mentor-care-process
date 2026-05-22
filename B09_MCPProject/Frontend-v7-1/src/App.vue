@@ -67,7 +67,7 @@
         <template v-if="role === 'support'">
           <p class="nav-group">Supporting Staff</p>
           <router-link to="/support/search-log">View Log Info</router-link>
-          <router-link to="/support/reply-feedback">Reply Users' Questions</router-link>
+          <router-link to="/support/reply-feedback">View Users' Feedback</router-link>
         </template>
       </nav>
     </aside>

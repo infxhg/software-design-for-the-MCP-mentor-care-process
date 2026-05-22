@@ -7,7 +7,7 @@
       <label>Group ID</label>
       <input
         v-model.trim="groupId"
-        placeholder="e.g. group_a1"
+        placeholder="Enter group ID"
         @keyup.enter="handleSearchGroup"
       />
       <button :disabled="loadingGroup || !groupId" @click="handleSearchGroup">
@@ -38,7 +38,7 @@
         <div class="search-row">
           <input
             v-model.trim="mentorKeyword"
-            placeholder="e.g. test_mentor_01"
+            placeholder="Enter mentor ID, name, or email"
             @keyup.enter="handleSearchMentor"
           />
           <button :disabled="loadingMentors || !mentorKeyword" @click="handleSearchMentor">
@@ -90,7 +90,7 @@ import {
   type MentorInfo,
 } from '../../api/org'
 
-const groupId = ref('group_a1')
+const groupId = ref('')
 const group = ref<GroupInfo | null>(null)
 
 const mentorKeyword = ref('')
@@ -176,7 +176,6 @@ async function handleSearchMentor() {
       return
     }
 
-    // 关键修复：只有一个结果时自动选中，不再让下面 select 看起来“空白不能用”
     if (mentorOptions.value.length === 1) {
       newMentorId.value = mentorOptions.value[0].mentorId
     }

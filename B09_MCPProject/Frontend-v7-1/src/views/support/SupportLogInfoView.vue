@@ -5,12 +5,14 @@
         <h1>Log Information — User Activity Overview</h1>
         <p class="desc">Activity and interaction logs of the selected user.</p>
       </div>
-      <button class="secondary" @click="goHome">Home</button>
+      <button class="secondary" type="button" @click="goHome">Home</button>
     </div>
 
     <div v-if="isLoading" class="loading">Loading log...</div>
 
-    <div v-else-if="userInfo">
+    <p v-if="error" class="error">{{ error }}</p>
+
+    <div v-if="!isLoading && userInfo">
       <div class="info-row">
         <div><strong>Name:</strong> {{ userInfo.name }} (ID: {{ userInfo.userId }})</div>
         <div><strong>Role:</strong> {{ userInfo.role }}</div>
@@ -29,7 +31,7 @@
         </tr>
         </thead>
         <tbody>
-        <tr v-for="(l, i) in logs" :key="i">
+        <tr v-for="(l, i) in logs" :key="`${l.date}-${l.logType}-${i}`">
           <td>{{ l.date }}</td>
           <td>{{ l.logType }}</td>
           <td>{{ l.summary }}</td>
@@ -40,17 +42,23 @@
       <p v-else class="empty">No log activity found.</p>
     </div>
 
-    <p v-else class="error">User not found.</p>
+    <p v-else-if="!isLoading && !error" class="error">User not found.</p>
 
     <div class="buttons">
-      <button class="secondary" @click="goBack">Back</button>
+      <button class="secondary" type="button" @click="goBack">Back</button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import {
+  getLogsByUser,
+  getUserInfoByIdApi,
+  type OperationLog,
+  type UserInfoDTO,
+} from '../../api/support'
 
 const route = useRoute()
 const router = useRouter()
@@ -67,49 +75,178 @@ const userInfo = ref<{
 
 const logs = ref<Array<{ date: string; logType: string; summary: string }>>([])
 const isLoading = ref(true)
+const error = ref('')
 
-onMounted(async () => {
-  /**
-   * Mock: real backend should expose GET /api/support/log/{userId}
-   */
-  await new Promise((r) => setTimeout(r, 200))
+function text(value: unknown, fallback = '-'): string {
+  const result = String(value ?? '').trim()
+  return result || fallback
+}
 
-  userInfo.value = {
-    userId,
-    name: 'Bnbuer',
-    role: 'student',
-    department: 'FST',
-    status: 'Active',
+function formatDate(value: unknown): string {
+  const raw = text(value, '')
+  if (!raw) return '-'
+
+  const date = new Date(raw)
+  if (Number.isNaN(date.getTime())) return raw
+
+  const yyyy = date.getFullYear()
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const dd = String(date.getDate()).padStart(2, '0')
+  const hh = String(date.getHours()).padStart(2, '0')
+  const min = String(date.getMinutes()).padStart(2, '0')
+
+  return `${yyyy}-${mm}-${dd} ${hh}:${min}`
+}
+
+function normalizeLog(log: OperationLog) {
+  return {
+    date: formatDate(log.date || log.timestamp || log.createTime || log.createdAt),
+    logType: text(log.logType || log.type || log.module || log.action || log.operation, 'Activity'),
+    summary: text(log.summary || log.detail || log.operation || log.action, '-'),
+  }
+}
+
+function normalizeUserInfo(info?: UserInfoDTO | null, sourceLog?: OperationLog) {
+  if (!info && !sourceLog && !userId) return null
+
+  return {
+    userId: text(info?.userId || info?.id || sourceLog?.userId || userId),
+    name: text(
+      info?.realName ||
+        info?.name ||
+        info?.username ||
+        sourceLog?.realName ||
+        sourceLog?.name ||
+        sourceLog?.username ||
+        sourceLog?.userName ||
+        userId,
+    ),
+    role: text(info?.role || sourceLog?.role),
+    department: text(sourceLog?.department),
+    status: text(info?.status || sourceLog?.status),
+  }
+}
+
+async function loadLogInfo() {
+  if (!userId) {
+    error.value = 'Invalid user ID.'
+    isLoading.value = false
+    return
   }
 
-  logs.value = [
-    { date: '2026-03-20', logType: 'Interview', summary: 'Progress review by Jack' },
-    { date: '2026-02-10', logType: 'Allocation', summary: 'Assigned to Group 2024-Y2' },
-    { date: '2026-01-15', logType: 'Login', summary: 'Logged in from web client' },
-  ]
+  isLoading.value = true
+  error.value = ''
+
+  let fetchedLogs: OperationLog[] = []
+  let fetchedUser: UserInfoDTO | null = null
+  let logError: unknown = null
+  let userError: unknown = null
+
+  try {
+    fetchedLogs = await getLogsByUser(userId)
+  } catch (err) {
+    logError = err
+    console.error('[support log] failed to load user logs:', err)
+  }
+
+  try {
+    fetchedUser = await getUserInfoByIdApi(userId)
+  } catch (err) {
+    userError = err
+    console.warn('[support log] failed to load user info:', err)
+  }
+
+  logs.value = fetchedLogs.map(normalizeLog)
+  userInfo.value = normalizeUserInfo(fetchedUser, fetchedLogs[0])
+
+  if (!userInfo.value && fetchedLogs.length === 0) {
+    const fallbackError = logError || userError
+    error.value = fallbackError instanceof Error ? fallbackError.message : 'Failed to load log information.'
+  }
 
   isLoading.value = false
+}
+
+onMounted(() => {
+  loadLogInfo()
 })
 
-function goBack() { router.back() }
-function goHome() { router.push('/main') }
+function goBack() {
+  router.back()
+}
+
+function goHome() {
+  router.push('/main')
+}
 </script>
 
 <style scoped>
-.header { display: flex; justify-content: space-between; align-items: center; }
-
-.info-row {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 10px; margin-top: 22px;
-  padding: 16px; background: #f9fafb; border-radius: 8px;
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
-h2 { margin-top: 24px; font-size: 17px; }
-table { width: 100%; border-collapse: collapse; margin-top: 14px; }
-th, td { padding: 10px; border: 1px solid #e5e7eb; text-align: left; }
-th { background: #f3f4f6; }
+.info-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin-top: 22px;
+  padding: 16px;
+  background: #f9fafb;
+  border-radius: 8px;
+}
 
-.buttons { margin-top: 22px; }
-.empty, .loading { color: #6b7280; padding: 20px 0; }
-.error { color: #dc2626; }
+h2 {
+  margin-top: 24px;
+  font-size: 17px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 14px;
+}
+
+th,
+td {
+  padding: 10px;
+  border: 1px solid #e5e7eb;
+  text-align: left;
+}
+
+th {
+  background: #f3f4f6;
+}
+
+button {
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.secondary {
+  background: #6b7280;
+}
+
+.secondary:hover {
+  background: #4b5563;
+}
+
+.buttons {
+  margin-top: 22px;
+}
+
+.empty,
+.loading {
+  color: #6b7280;
+  padding: 20px 0;
+}
+
+.error {
+  color: #dc2626;
+}
 </style>

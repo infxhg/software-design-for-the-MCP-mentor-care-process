@@ -92,23 +92,10 @@
               <input
                 id="consultantId"
                 v-model.trim="targetConsultantId"
-                placeholder="Example: test_faculty_01"
+                placeholder="Enter Faculty Consultant ID"
                 @keydown.enter.prevent="forwardSelectedCase"
               />
-
-              <div class="quick-row">
-                <button
-                  v-for="id in consultantExamples"
-                  :key="id"
-                  type="button"
-                  class="chip"
-                  @click="targetConsultantId = id"
-                >
-                  {{ id }}
-                </button>
-              </div>
-
-              <button
+<button
                 type="button"
                 :disabled="submitting || !targetConsultantId"
                 @click="forwardSelectedCase"
@@ -142,9 +129,6 @@ const loading = ref(false)
 const submitting = ref(false)
 const message = ref('')
 const isError = ref(false)
-
-const consultantExamples = ['test_faculty_01', 'test_faculty_02']
-
 const filteredCases = computed(() => {
   if (statusFilter.value === 'ALL') return cases.value
   return cases.value.filter((item) => normalizeStatus(item.status) === statusFilter.value)

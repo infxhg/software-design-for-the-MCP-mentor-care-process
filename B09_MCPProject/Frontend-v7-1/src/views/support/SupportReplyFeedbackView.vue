@@ -1,10 +1,13 @@
 <template>
-  <div class="reply-feedback-page">
+  <div class="feedback-page">
     <div class="card">
       <div class="header-row">
         <div>
-          <h1>Reply Users' Feedback</h1>
-          <p class="desc">Respond to feedback submitted by users.</p>
+          <h1>View Users' Feedback</h1>
+          <p class="desc">
+            The current backend API supports viewing submitted feedback, but does not provide a
+            reply/update endpoint. This page is read-only to avoid fake replies or Not Found errors.
+          </p>
         </div>
 
         <button class="secondary" type="button" @click="goHome">Home</button>
@@ -17,7 +20,6 @@
       </div>
 
       <p v-if="error" class="error">{{ error }}</p>
-      <p v-if="success" class="success">{{ success }}</p>
 
       <div v-if="loading" class="empty">Loading feedback...</div>
 
@@ -26,38 +28,38 @@
       </div>
 
       <div v-else class="feedback-list">
-        <article v-for="item in feedbackList" :key="item.feedbackId" class="feedback-item">
+        <article
+          v-for="item in feedbackList"
+          :key="item.feedbackId || String(item.id)"
+          class="feedback-item"
+        >
           <div class="feedback-meta">
-            <strong>{{ displayUser(item) }}</strong>
-            <span>{{ formatDate(item.submittedAt || item.createTime || item.createdAt) }}</span>
+            <div>
+              <strong>{{ displayUser(item) }}</strong>
+              <span class="role" v-if="displayRole(item)">{{ displayRole(item) }}</span>
+            </div>
+
+            <div class="meta-right">
+              <span :class="['status', statusClass(item)]">{{ statusText(item) }}</span>
+              <span class="date">
+                {{ formatDate(item.submittedAt || item.createTime || item.createdAt) }}
+              </span>
+            </div>
           </div>
 
           <div class="content-box">
-            {{ item.content || item.feedbackContent }}
+            {{ item.content || item.feedbackContent || '-' }}
           </div>
 
-          <div v-if="isReplied(item)" class="reply-box">
-            <strong>Replied:</strong>
+          <div v-if="item.reply || item.replyContent" class="reply-box">
+            <strong>Existing reply:</strong>
             <span>{{ item.replyContent || item.reply }}</span>
           </div>
 
-          <div v-else class="reply-form">
-            <textarea
-                v-model="replyDrafts[item.feedbackId]"
-                rows="3"
-                placeholder="Enter your response..."
-                :disabled="replySavingId === item.feedbackId"
-            />
-
-            <button
-                class="primary"
-                type="button"
-                :disabled="replySavingId === item.feedbackId || !replyDrafts[item.feedbackId]?.trim()"
-                @click="sendReply(item)"
-            >
-              {{ replySavingId === item.feedbackId ? 'Sending...' : 'Send Reply' }}
-            </button>
-          </div>
+          <p v-else class="readonly-note">
+            Reply action is hidden because the backend API document only provides feedback submit/list
+            endpoints, not a real reply endpoint.
+          </p>
         </article>
       </div>
 
@@ -71,20 +73,13 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import {
-  listFeedback,
-  replyFeedback,
-  type FeedbackItem,
-} from '../../api/user'
+import { listFeedback, type FeedbackItem } from '../../api/user'
 
 const router = useRouter()
 
 const feedbackList = ref<FeedbackItem[]>([])
-const replyDrafts = ref<Record<string, string>>({})
 const loading = ref(false)
-const replySavingId = ref('')
 const error = ref('')
-const success = ref('')
 
 onMounted(() => {
   loadFeedback()
@@ -93,98 +88,60 @@ onMounted(() => {
 async function loadFeedback() {
   loading.value = true
   error.value = ''
-  success.value = ''
 
   try {
     const rows = await listFeedback()
-    feedbackList.value = rows
-        .filter((item) => item.feedbackId)
-        .sort((a, b) => {
-          const at = new Date(a.submittedAt || a.createTime || a.createdAt || 0).getTime()
-          const bt = new Date(b.submittedAt || b.createTime || b.createdAt || 0).getTime()
-          return bt - at
-        })
 
-    const drafts: Record<string, string> = {}
-    for (const item of feedbackList.value) {
-      drafts[item.feedbackId] = ''
-    }
-    replyDrafts.value = drafts
+    feedbackList.value = rows
+      .filter((item) => Boolean(item.feedbackId || item.id || item.content || item.feedbackContent))
+      .sort((a, b) => {
+        const at = new Date(a.submittedAt || a.createTime || a.createdAt || 0).getTime()
+        const bt = new Date(b.submittedAt || b.createTime || b.createdAt || 0).getTime()
+        return bt - at
+      })
   } catch (err) {
     console.error('[support feedback] failed to load feedback:', err)
     error.value =
-        err instanceof Error
-            ? err.message || 'Failed to load feedback.'
-            : 'Failed to load feedback.'
+      err instanceof Error
+        ? err.message || 'Failed to load feedback.'
+        : 'Failed to load feedback.'
   } finally {
     loading.value = false
   }
 }
 
-async function sendReply(item: FeedbackItem) {
-  const feedbackId = item.feedbackId
-  const replyText = (replyDrafts.value[feedbackId] || '').trim()
-
-  error.value = ''
-  success.value = ''
-
-  if (!feedbackId) {
-    error.value = 'Invalid feedback ID.'
-    return
-  }
-
-  if (!replyText) {
-    error.value = 'Please enter your response before sending.'
-    return
-  }
-
-  replySavingId.value = feedbackId
-
-  try {
-    const updated = await replyFeedback(feedbackId, replyText)
-
-    feedbackList.value = feedbackList.value.map((row) => {
-      if (row.feedbackId !== feedbackId) return row
-
-      return {
-        ...row,
-        ...updated,
-        feedbackId,
-        reply: updated.reply || updated.replyContent || replyText,
-        replyContent: updated.replyContent || updated.reply || replyText,
-        status: updated.status || 'REPLIED',
-      }
-    })
-
-    replyDrafts.value[feedbackId] = ''
-    success.value = 'Reply sent successfully.'
-  } catch (err) {
-    console.error('[support feedback] failed to reply feedback:', err)
-    error.value =
-        err instanceof Error
-            ? err.message || 'Failed to send reply.'
-            : 'Failed to send reply.'
-  } finally {
-    replySavingId.value = ''
-  }
-}
-
-function isReplied(item: FeedbackItem): boolean {
-  const status = String(item.status || '').toUpperCase()
-  return Boolean(item.reply || item.replyContent || status === 'REPLIED' || status === 'CLOSED')
-}
-
 function displayUser(item: FeedbackItem): string {
   const name =
-      item.fromUser ||
-      item.username ||
-      item.userId ||
-      item.fromUserId ||
-      'Unknown User'
+    item.fromUser ||
+    item.username ||
+    item.userId ||
+    item.fromUserId ||
+    'Unknown User'
 
-  const role = item.fromRole || item.role
+  return String(name)
+}
 
-  return role ? `${name} (${role})` : String(name)
+function displayRole(item: FeedbackItem): string {
+  return String(item.fromRole || item.role || '').trim()
+}
+
+function statusText(item: FeedbackItem): string {
+  const status = String(item.status || '').trim()
+
+  if (status) return status.toUpperCase()
+  if (item.reply || item.replyContent) return 'REPLIED'
+
+  return 'PENDING'
+}
+
+function statusClass(item: FeedbackItem): string {
+  const status = statusText(item)
+
+  if (status === 'REPLIED' || status === 'CLOSED' || status === 'RESOLVED') {
+    return 'status-done'
+  }
+
+  return 'status-pending'
 }
 
 function formatDate(value?: string): string {
@@ -212,7 +169,7 @@ function goHome() {
 </script>
 
 <style scoped>
-.reply-feedback-page {
+.feedback-page {
   max-width: 960px;
   margin: 0 auto;
 }
@@ -240,6 +197,7 @@ h1 {
 
 .desc {
   margin: 0;
+  max-width: 720px;
   color: #64748b;
 }
 
@@ -267,10 +225,41 @@ h1 {
   color: #0f172a;
 }
 
-.feedback-meta span {
+.role {
+  display: inline-block;
+  margin-left: 8px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.meta-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.date {
   color: #475569;
   font-size: 13px;
   white-space: nowrap;
+}
+
+.status {
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.status-pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.status-done {
+  background: #dcfce7;
+  color: #047857;
 }
 
 .content-box {
@@ -290,29 +279,15 @@ h1 {
   white-space: pre-wrap;
 }
 
-.reply-form {
-  margin-top: 10px;
+.reply-box strong {
+  display: block;
+  margin-bottom: 6px;
 }
 
-textarea {
-  width: 100%;
-  resize: vertical;
-  min-height: 70px;
-  padding: 10px;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  font: inherit;
-  outline: none;
-}
-
-textarea:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
-}
-
-textarea:disabled {
-  background: #f8fafc;
-  cursor: not-allowed;
+.readonly-note {
+  margin: 10px 0 0;
+  color: #64748b;
+  font-size: 13px;
 }
 
 button {
@@ -330,7 +305,6 @@ button:disabled {
 }
 
 .primary {
-  margin-top: 10px;
   background: #2563eb;
 }
 
@@ -349,11 +323,6 @@ button:disabled {
 .empty {
   padding: 24px 0;
   color: #64748b;
-}
-
-.success {
-  margin: 12px 0;
-  color: #047857;
 }
 
 .error {

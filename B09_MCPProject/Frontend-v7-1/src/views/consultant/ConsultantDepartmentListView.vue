@@ -3,7 +3,7 @@
     <div class="header">
       <div>
         <h1>Department List</h1>
-        <p class="desc">Faculty: <strong>{{ faculty }}</strong></p>
+        <p class="desc">Faculty: <strong>{{ faculty || '-' }}</strong></p>
       </div>
       <button class="secondary" @click="goHome">Home</button>
     </div>
@@ -50,7 +50,7 @@ import type { DepartmentSummary } from '../../api/consultant'
 const router = useRouter()
 
 const departments = ref<DepartmentSummary[]>([])
-const faculty = ref<string>('FST')
+const faculty = ref<string>('')
 const isLoading = ref(true)
 const errorMsg = ref('')
 

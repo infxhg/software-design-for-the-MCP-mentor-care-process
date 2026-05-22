@@ -356,7 +356,7 @@ async function loadMessages() {
       localSentMessages,
     ).sort(sortByTime)
   } catch {
-    messages.value = loadLocalSentMessages().sort(sortByTime)
+.sort(sortByTime)
   } finally {
     loadingMessages.value = false
   }
@@ -391,9 +391,7 @@ async function send() {
   try {
     await sendNormalMessage(receiverIds, messageContent)
 
-    addLocalSentMessage(receiverIds, messageContent)
-
-    manualReceiverIds.value = ''
+    await loadMessages()manualReceiverIds.value = ''
     content.value = ''
 
     showSuccess('Message sent successfully.')
@@ -404,27 +402,7 @@ async function send() {
     sending.value = false
   }
 }
-
-function addLocalSentMessage(receiverIds: string[], messageContent: string) {
-  const now = new Date().toISOString()
-  const localKey = `local-sent-${Date.now()}`
-
-  const localMessage: MessageForView = {
-    id: localKey,
-    messageId: localKey,
-    localKey,
-    senderId: getCurrentUserIdOrUsername(),
-    senderName: 'Me',
-    recipientIds: receiverIds,
-    content: messageContent,
-    createTime: now,
-    timestamp: now,
-    isLocalSent: true,
-    read: true,
-  }
-
-  appendLocalSentMessage(localMessage)
-  messages.value = mergeMessages(messages.value, [localMessage]).sort(sortByTime)
+messages.value = mergeMessages(messages.value, [localMessage]).sort(sortByTime)
 }
 
 function replyTo(senderId: string) {
@@ -566,15 +544,6 @@ function loadLocalSentMessages(): MessageForView[] {
     return []
   }
 }
-
-function appendLocalSentMessage(message: MessageForView) {
-  const next = mergeMessages(loadLocalSentMessages(), [message])
-    .sort(sortByTime)
-    .slice(-100)
-
-  localStorage.setItem(getLocalSentStorageKey(), JSON.stringify(next))
-}
-
 function toFriendlySendError(err: any): string {
   const text = String(err?.message || err || '')
 
