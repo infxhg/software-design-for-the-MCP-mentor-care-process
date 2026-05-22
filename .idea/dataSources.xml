@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="DataSourceManagerImpl" format="xml" multifile-model="true">
-    <data-source source="LOCAL" name="common-user@rm-7xvkq7eswp47232at3o.mysql.rds.aliyuncs.com" uuid="8ad442ce-1b68-41fe-8eed-1f24d560327b">
+    <data-source source="LOCAL" name="User-Service" uuid="61f5c2a1-3f4f-4993-9492-a520f48dad50">
       <driver-ref>mysql.8</driver-ref>
       <synchronize>true</synchronize>
       <jdbc-driver>com.mysql.cj.jdbc.Driver</jdbc-driver>
-      <jdbc-url>jdbc:mysql://rm-7xvkq7eswp47232at3o.mysql.rds.aliyuncs.com:3306/</jdbc-url>
+      <jdbc-url>jdbc:mysql://rm-7xvkq7eswp47232at3o.mysql.rds.aliyuncs.com:3306/common-user?serverTimezone=UTC</jdbc-url>
       <jdbc-additional-properties>
         <property name="com.intellij.clouds.kubernetes.db.host.port" />
         <property name="com.intellij.clouds.kubernetes.db.enabled" value="false" />
@@ -13,31 +13,7 @@
       </jdbc-additional-properties>
       <working-dir>$ProjectFileDir$</working-dir>
     </data-source>
-    <data-source source="LOCAL" name="common-user@rm-7xvkq7eswp47232at3o.mysql.rds.aliyuncs.com [2]" uuid="1c881f5e-f950-464a-bb55-f590cedb1388">
-      <driver-ref>mysql.8</driver-ref>
-      <synchronize>true</synchronize>
-      <jdbc-driver>com.mysql.cj.jdbc.Driver</jdbc-driver>
-      <jdbc-url>jdbc:mysql://rm-7xvkq7eswp47232at3o.mysql.rds.aliyuncs.com:3306/common-user</jdbc-url>
-      <jdbc-additional-properties>
-        <property name="com.intellij.clouds.kubernetes.db.host.port" />
-        <property name="com.intellij.clouds.kubernetes.db.enabled" value="false" />
-        <property name="com.intellij.clouds.kubernetes.db.container.port" />
-      </jdbc-additional-properties>
-      <working-dir>$ProjectFileDir$</working-dir>
-    </data-source>
-    <data-source source="LOCAL" name="mentoring-service@rm-7xvkq7eswp47232at3o.mysql.rds.aliyuncs.com" uuid="d5476b15-fc98-436c-8ff9-e6c58ffc4c16">
-      <driver-ref>mysql.8</driver-ref>
-      <synchronize>true</synchronize>
-      <jdbc-driver>com.mysql.cj.jdbc.Driver</jdbc-driver>
-      <jdbc-url>jdbc:mysql://rm-7xvkq7eswp47232at3o.mysql.rds.aliyuncs.com:3306/mentoring-service?serverTimezone=UTC&amp;characterEncoding=utf8</jdbc-url>
-      <jdbc-additional-properties>
-        <property name="com.intellij.clouds.kubernetes.db.host.port" />
-        <property name="com.intellij.clouds.kubernetes.db.enabled" value="false" />
-        <property name="com.intellij.clouds.kubernetes.db.container.port" />
-      </jdbc-additional-properties>
-      <working-dir>$ProjectFileDir$</working-dir>
-    </data-source>
-    <data-source source="LOCAL" name="organization-service-database@rm-7xvkq7eswp47232at3o.mysql.rds.aliyuncs.com" uuid="f522db11-8aea-414e-b1c5-db84d8788d6b">
+    <data-source source="LOCAL" name="Organizational-Service" uuid="8eb7e565-daa2-42dc-9f4d-05311fd637a9">
       <driver-ref>mysql.8</driver-ref>
       <synchronize>true</synchronize>
       <jdbc-driver>com.mysql.cj.jdbc.Driver</jdbc-driver>
@@ -49,36 +25,16 @@
       </jdbc-additional-properties>
       <working-dir>$ProjectFileDir$</working-dir>
     </data-source>
-    <data-source source="LOCAL" name="0@localhost" uuid="aa485f05-f060-45a7-92c6-8a5b7383f226">
-      <driver-ref>redis</driver-ref>
+    <data-source source="LOCAL" name="Mentoring-Service" uuid="4e64ed1c-f549-4e1b-b4b4-8d3a87bedc0a">
+      <driver-ref>mysql.8</driver-ref>
       <synchronize>true</synchronize>
-      <imported>true</imported>
-      <remarks>$PROJECT_DIR$/B09_MCPProject/Organizational-Service/src/main/resources/application.yml</remarks>
-      <jdbc-driver>jdbc.RedisDriver</jdbc-driver>
-      <jdbc-url>jdbc:redis://localhost:6379/0</jdbc-url>
-      <working-dir>$ProjectFileDir$</working-dir>
-    </data-source>
-    <data-source source="LOCAL" name="0@localhost" uuid="ecdc943f-3537-427f-b407-301d4d708ffc">
-      <driver-ref>redis</driver-ref>
-      <synchronize>true</synchronize>
-      <imported>true</imported>
-      <remarks>$PROJECT_DIR$/B09_MCPProject/Mentoring-Service/src/main/resources/application.yml</remarks>
-      <jdbc-driver>jdbc.RedisDriver</jdbc-driver>
-      <jdbc-url>jdbc:redis://localhost:6379/0</jdbc-url>
+      <jdbc-driver>com.mysql.cj.jdbc.Driver</jdbc-driver>
+      <jdbc-url>jdbc:mysql://rm-7xvkq7eswp47232at3o.mysql.rds.aliyuncs.com:3306/mentoring-service?serverTimezone=UTC&amp;characterEncoding=utf8</jdbc-url>
       <jdbc-additional-properties>
         <property name="com.intellij.clouds.kubernetes.db.host.port" />
         <property name="com.intellij.clouds.kubernetes.db.enabled" value="false" />
         <property name="com.intellij.clouds.kubernetes.db.container.port" />
       </jdbc-additional-properties>
-      <working-dir>$ProjectFileDir$</working-dir>
-    </data-source>
-    <data-source source="LOCAL" name="0@localhost" uuid="0afedaaa-161a-4b29-94c3-7c9fc9fd2c9a">
-      <driver-ref>redis</driver-ref>
-      <synchronize>true</synchronize>
-      <imported>true</imported>
-      <remarks>$PROJECT_DIR$/B09_MCPProject/User-Service/src/main/resources/application.yml</remarks>
-      <jdbc-driver>jdbc.RedisDriver</jdbc-driver>
-      <jdbc-url>jdbc:redis://localhost:6379/0</jdbc-url>
       <working-dir>$ProjectFileDir$</working-dir>
     </data-source>
   </component>
