@@ -4,7 +4,7 @@
       <div>
         <p class="eyebrow">Communication</p>
         <h1>Normal Message</h1>
-        <p class="subtitle">Send and receive text messages with your related users.</p>
+        <p class="subtitle">Send and receive normal text messages.</p>
       </div>
 
       <div class="header-actions">
@@ -19,10 +19,10 @@
 
     <section class="role-panel">
       <div
-        v-for="item in scopeCards"
-        :key="item.role"
-        class="scope-card"
-        :class="{ active: currentRole === item.role }"
+          v-for="item in scopeCards"
+          :key="item.role"
+          class="scope-card"
+          :class="{ active: currentRole === item.role }"
       >
         <span>{{ item.title }}</span>
         <strong>{{ item.description }}</strong>
@@ -32,55 +32,51 @@
     <section class="chat-shell">
       <aside class="chat-sidebar">
         <div class="sidebar-block">
-          <h2>Start Chat</h2>
+          <h2>Send Message</h2>
+
+          <p class="scope-note">
+            {{ currentScopeText }}
+          </p>
 
           <label for="receiverIds">Receiver IDs</label>
           <input
-            id="receiverIds"
-            v-model.trim="manualReceiverIds"
-            autocomplete="off"
-            placeholder="e.g. test_mentor_01, test_stu_out_01"
+              id="receiverIds"
+              v-model.trim="manualReceiverIds"
+              autocomplete="off"
+              placeholder="e.g. test_stu_in_01, test_coord_01"
           />
 
           <div v-if="parsedReceiverIds.length" class="receiver-list">
             <span
-              v-for="receiverId in parsedReceiverIds"
-              :key="receiverId"
-              class="receiver-chip"
+                v-for="receiverId in parsedReceiverIds"
+                :key="receiverId"
+                class="receiver-chip"
             >
               {{ receiverId }}
               <button type="button" @click="removeReceiver(receiverId)">×</button>
             </span>
           </div>
 
-          <div class="quick-buttons">
-            <button
-              v-for="example in receiverExamples"
-              :key="example.value"
-              type="button"
-              class="quick-button"
-              @click="appendReceiver(example.value)"
-            >
-              {{ example.label }}
-            </button>
-          </div>
+          <p class="hint">
+            Multiple receiver IDs can be separated by comma, space, or semicolon.
+          </p>
         </div>
 
         <div class="sidebar-block">
           <h2>Filter History</h2>
 
-          <label for="peerFilter">Peer ID</label>
+          <label for="peerFilter">User ID</label>
           <input
-            id="peerFilter"
-            v-model.trim="peerFilter"
-            placeholder="Filter by user ID"
+              id="peerFilter"
+              v-model.trim="peerFilter"
+              placeholder="Filter by sender or receiver ID"
           />
 
           <label for="historyKeyword">Keyword</label>
           <input
-            id="historyKeyword"
-            v-model.trim="historyKeyword"
-            placeholder="Search message content"
+              id="historyKeyword"
+              v-model.trim="historyKeyword"
+              placeholder="Search message content"
           />
 
           <button class="secondary full-width" type="button" @click="clearHistoryFilters">
@@ -89,17 +85,21 @@
         </div>
 
         <div v-if="recentPeers.length" class="sidebar-block">
-          <h2>Recent Peers</h2>
+          <h2>Recent Users</h2>
 
-          <button
-            v-for="peer in recentPeers"
-            :key="peer"
-            class="peer-button"
-            type="button"
-            @click="selectPeer(peer)"
+          <div
+              v-for="peer in recentPeers"
+              :key="peer"
+              class="peer-row"
           >
-            {{ peer }}
-          </button>
+            <button class="peer-main" type="button" @click="filterByPeer(peer)">
+              {{ peer }}
+            </button>
+
+            <button class="text-button" type="button" @click="appendReceiver(peer)">
+              Use
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -107,7 +107,10 @@
         <div class="chat-topbar">
           <div>
             <h2>{{ conversationTitle }}</h2>
-            <p>{{ filteredMessages.length }} message{{ filteredMessages.length === 1 ? '' : 's' }}</p>
+            <p>
+              {{ filteredMessages.length }}
+              message{{ filteredMessages.length === 1 ? '' : 's' }}
+            </p>
           </div>
 
           <button class="secondary" type="button" :disabled="loadingMessages" @click="loadAllHistory">
@@ -126,41 +129,29 @@
 
           <template v-else>
             <article
-              v-for="msg in filteredMessages"
-              :key="msg.localKey"
-              class="bubble-row"
-              :class="{ mine: msg.isLocalSent }"
+                v-for="msg in filteredMessages"
+                :key="msg.localKey"
+                class="bubble-row"
+                :class="{ mine: isMine(msg) }"
             >
               <div class="bubble">
                 <div class="bubble-meta">
                   <strong>{{ displaySender(msg) }}</strong>
-                  <span>{{ formatTime(msg.createTime || msg.timestamp) }}</span>
+                  <span>{{ formatTime(msg.createTime || msg.timestamp || msg.createdAt) }}</span>
                 </div>
 
                 <p>{{ msg.content || '-' }}</p>
 
                 <div class="bubble-extra">
-                  <span v-if="msg.senderId">From: {{ msg.senderId }}</span>
-                  <span v-if="msg.recipientIds?.length">To: {{ msg.recipientIds.join(', ') }}</span>
+                  <span v-if="getSenderId(msg)">From: {{ getSenderId(msg) }}</span>
+                  <span v-if="getRecipientIds(msg).length">
+                    To: {{ getRecipientIds(msg).join(', ') }}
+                  </span>
                 </div>
 
-                <div v-if="!msg.isLocalSent" class="bubble-actions">
-                  <button
-                    v-if="msg.senderId"
-                    class="text-button"
-                    type="button"
-                    @click="replyTo(msg.senderId)"
-                  >
-                    Reply
-                  </button>
-
-                  <button
-                    v-if="msg.senderId"
-                    class="text-button"
-                    type="button"
-                    @click="copyText(msg.senderId)"
-                  >
-                    Copy ID
+                <div v-if="getSenderId(msg)" class="bubble-actions">
+                  <button class="text-button" type="button" @click="copyText(getSenderId(msg))">
+                    Copy Sender ID
                   </button>
                 </div>
               </div>
@@ -169,21 +160,27 @@
         </div>
 
         <div class="composer">
+          <div class="composer-target">
+            <strong>Receivers:</strong>
+            <span v-if="parsedReceiverIds.length">{{ parsedReceiverIds.join(', ') }}</span>
+            <span v-else class="muted">No receiver selected</span>
+          </div>
+
           <textarea
-            v-model="content"
-            rows="4"
-            maxlength="500"
-            placeholder="Type your message..."
-            @keydown.ctrl.enter.prevent="send"
-            @keydown.meta.enter.prevent="send"
+              v-model="content"
+              rows="4"
+              maxlength="500"
+              placeholder="Type your message..."
+              @keydown.ctrl.enter.prevent="send"
+              @keydown.meta.enter.prevent="send"
           />
 
           <div class="composer-footer">
             <span>{{ content.length }}/500</span>
 
             <div class="composer-actions">
-              <button class="secondary" type="button" @click="resetForm">
-                Reset
+              <button class="secondary" type="button" @click="resetMessage">
+                Reset Message
               </button>
 
               <button type="button" :disabled="sending || !canSend" @click="send">
@@ -206,10 +203,20 @@ import {
   sendNormalMessage,
   type MessageEntity,
 } from '../../api/communication'
+import type { Role } from '../../types'
 
 type MessageForView = MessageEntity & {
   localKey: string
-  isLocalSent?: boolean
+  senderName?: string
+  senderUsername?: string
+  fromUserName?: string
+  fromName?: string
+}
+
+type ScopeCard = {
+  role: Role
+  title: string
+  description: string
 }
 
 const router = useRouter()
@@ -218,16 +225,16 @@ const messages = ref<MessageForView[]>([])
 const manualReceiverIds = ref('')
 const content = ref('')
 const notice = ref('')
+
 const isError = ref(false)
 const loadingMessages = ref(false)
 const sending = ref(false)
+
 const unreadCount = ref(0)
 const historyKeyword = ref('')
 const peerFilter = ref('')
 
-const currentRole = computed(() => localStorage.getItem('role') || '')
-
-const scopeCards = [
+const scopeCards: ScopeCard[] = [
   {
     role: 'student',
     title: 'Student',
@@ -250,42 +257,31 @@ const scopeCards = [
   },
 ]
 
+const currentRole = computed<Role>(() => normalizeRole(localStorage.getItem('role') || 'student'))
+
+const currentScopeText = computed(() => {
+  switch (currentRole.value) {
+    case 'student':
+      return 'Students can send normal messages to their assigned mentor.'
+
+    case 'mentor':
+      return 'Mentors can send normal messages to students in their group and the MCP coordinator.'
+
+    case 'coordinator':
+      return 'MCP coordinators can communicate with mentors, students and faculty consultants.'
+
+    case 'consultant':
+      return 'Faculty consultants can communicate with coordinators and mentors.'
+
+    default:
+      return 'Normal messages are limited to related users.'
+  }
+})
+
 const parsedReceiverIds = computed(() => parseReceiverIds(manualReceiverIds.value))
 
 const canSend = computed(() => {
   return parsedReceiverIds.value.length > 0 && content.value.trim().length > 0
-})
-
-const receiverExamples = computed(() => {
-  switch (currentRole.value) {
-    case 'student':
-      return [{ label: 'Mentor example', value: 'test_mentor_01' }]
-
-    case 'mentor':
-      return [
-        { label: 'Student example', value: 'test_stu_out_01' },
-        { label: 'Coordinator example', value: 'test_coord_01' },
-      ]
-
-    case 'coordinator':
-      return [
-        { label: 'Mentor example', value: 'test_mentor_01' },
-        { label: 'Student example', value: 'test_stu_out_01' },
-        { label: 'Consultant example', value: 'test_faculty_01' },
-      ]
-
-    case 'consultant':
-      return [
-        { label: 'Coordinator example', value: 'test_coord_01' },
-        { label: 'Mentor example', value: 'test_mentor_01' },
-      ]
-
-    default:
-      return [
-        { label: 'Student example', value: 'test_stu_out_01' },
-        { label: 'Mentor example', value: 'test_mentor_01' },
-      ]
-  }
 })
 
 const filteredMessages = computed(() => {
@@ -293,39 +289,51 @@ const filteredMessages = computed(() => {
   const peer = peerFilter.value.trim().toLowerCase()
 
   return messages.value.filter((msg) => {
+    const senderId = getSenderId(msg)
+    const recipientIds = getRecipientIds(msg)
+
     const searchableText = [
-      msg.senderId,
+      senderId,
       msg.senderName,
-      msg.recipientIds?.join(','),
+      msg.senderUsername,
+      msg.fromUserName,
+      msg.fromName,
+      recipientIds.join(','),
       msg.content,
       msg.createTime,
+      msg.createdAt,
+      msg.timestamp,
     ]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase()
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
 
     const matchKeyword = !keyword || searchableText.includes(keyword)
 
     const matchPeer =
-      !peer ||
-      String(msg.senderId || '').toLowerCase().includes(peer) ||
-      (msg.recipientIds || []).some((id) => id.toLowerCase().includes(peer))
+        !peer ||
+        senderId.toLowerCase().includes(peer) ||
+        recipientIds.some((id) => id.toLowerCase().includes(peer))
 
     return matchKeyword && matchPeer
   })
 })
 
 const recentPeers = computed(() => {
-  const currentUser = getCurrentUserIdOrUsername()
+  const currentIds = getCurrentUserIdentifiers()
   const set = new Set<string>()
 
   messages.value.forEach((msg) => {
-    if (msg.senderId && msg.senderId !== currentUser) {
-      set.add(msg.senderId)
+    const senderId = getSenderId(msg)
+
+    if (senderId && !currentIds.includes(senderId)) {
+      set.add(senderId)
     }
 
-    ;(msg.recipientIds || []).forEach((id) => {
-      if (id && id !== currentUser) set.add(id)
+    getRecipientIds(msg).forEach((id) => {
+      if (id && !currentIds.includes(id)) {
+        set.add(id)
+      }
     })
   })
 
@@ -333,7 +341,7 @@ const recentPeers = computed(() => {
 })
 
 const conversationTitle = computed(() => {
-  return peerFilter.value.trim() ? `Chat with ${peerFilter.value.trim()}` : 'All Messages'
+  return peerFilter.value.trim() ? `Messages with ${peerFilter.value.trim()}` : 'All Messages'
 })
 
 onMounted(async () => {
@@ -349,14 +357,10 @@ async function loadMessages() {
 
   try {
     const remoteMessages = await listMyMessages()
-    const localSentMessages = loadLocalSentMessages()
-
-    messages.value = mergeMessages(
-      remoteMessages.map(toViewMessage),
-      localSentMessages,
-    ).sort(sortByTime)
-  } catch {
-.sort(sortByTime)
+    messages.value = remoteMessages.map(toViewMessage).sort(sortByTime)
+  } catch (err: any) {
+    messages.value = []
+    showError(toFriendlyError(err, 'Failed to load messages.'))
   } finally {
     loadingMessages.value = false
   }
@@ -391,48 +395,38 @@ async function send() {
   try {
     await sendNormalMessage(receiverIds, messageContent)
 
-    await loadMessages()manualReceiverIds.value = ''
     content.value = ''
-
     showSuccess('Message sent successfully.')
-    await loadUnreadCount()
+
+    await loadAllHistory()
   } catch (err: any) {
     showError(toFriendlySendError(err))
   } finally {
     sending.value = false
   }
 }
-messages.value = mergeMessages(messages.value, [localMessage]).sort(sortByTime)
-}
-
-function replyTo(senderId: string) {
-  appendReceiver(senderId)
-  peerFilter.value = senderId
-}
-
-function selectPeer(peerId: string) {
-  peerFilter.value = peerId
-  manualReceiverIds.value = peerId
-}
 
 function appendReceiver(receiverId: string) {
-  const current = [...parsedReceiverIds.value]
+  if (!receiverId) return
+
+  const current = parsedReceiverIds.value
 
   if (!current.includes(receiverId)) {
-    current.push(receiverId)
+    manualReceiverIds.value = [...current, receiverId].join(', ')
   }
-
-  manualReceiverIds.value = current.join(', ')
 }
 
 function removeReceiver(receiverId: string) {
   manualReceiverIds.value = parsedReceiverIds.value
-    .filter((id) => id !== receiverId)
-    .join(', ')
+      .filter((id) => id !== receiverId)
+      .join(', ')
 }
 
-function resetForm() {
-  manualReceiverIds.value = ''
+function filterByPeer(peerId: string) {
+  peerFilter.value = peerId
+}
+
+function resetMessage() {
   content.value = ''
   clearNotice()
 }
@@ -444,20 +438,23 @@ function clearHistoryFilters() {
 
 function parseReceiverIds(value: string): string[] {
   return Array.from(
-    new Set(
-      value
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean),
-    ),
+      new Set(
+          value
+              .split(/[,\s;，；]+/)
+              .map((item) => item.trim())
+              .filter(Boolean),
+      ),
   )
 }
 
 function toViewMessage(item: MessageEntity): MessageForView {
+  const senderId = getSenderId(item)
+  const recipientKey = getRecipientIds(item).join('-')
+  const time = item.createTime || item.createdAt || item.timestamp || ''
   const id = String(
-    item.id ||
+      item.id ||
       item.messageId ||
-      `${item.senderId || 'unknown'}-${item.createTime || Date.now()}`,
+      `${senderId}-${recipientKey}-${time}-${item.content}`,
   )
 
   return {
@@ -468,87 +465,144 @@ function toViewMessage(item: MessageEntity): MessageForView {
   }
 }
 
-function mergeMessages(...groups: MessageForView[][]): MessageForView[] {
-  const map = new Map<string, MessageForView>()
-
-  groups.flat().forEach((msg) => {
-    const key = msg.localKey || msg.messageId || msg.id
-    if (!key) return
-    map.set(key, msg)
-  })
-
-  return Array.from(map.values())
-}
-
 function sortByTime(a: MessageForView, b: MessageForView) {
-  const aTime = new Date(a.createTime || a.timestamp || 0).getTime()
-  const bTime = new Date(b.createTime || b.timestamp || 0).getTime()
+  const aTime = timeValue(a.createTime || a.timestamp || a.createdAt)
+  const bTime = timeValue(b.createTime || b.timestamp || b.createdAt)
+
   return aTime - bTime
 }
 
+function timeValue(value?: string): number {
+  if (!value) return 0
+
+  const date = new Date(value)
+  const time = date.getTime()
+
+  return Number.isNaN(time) ? 0 : time
+}
+
+function getSenderId(msg: MessageEntity): string {
+  return String(msg.senderId || msg.fromUserId || msg.from || '').trim()
+}
+
+function getRecipientIds(msg: MessageEntity): string[] {
+  const values = [
+    ...(msg.recipientIds || []),
+    ...(msg.receiverIds || []),
+    msg.recipientId,
+    msg.receiverId,
+    msg.toUserId,
+  ]
+
+  return Array.from(
+      new Set(
+          values
+              .map((value) => String(value || '').trim())
+              .filter(Boolean),
+      ),
+  )
+}
+
+function isMine(msg: MessageEntity): boolean {
+  const senderId = getSenderId(msg)
+
+  if (!senderId) return false
+
+  return getCurrentUserIdentifiers().includes(senderId)
+}
+
 function displaySender(msg: MessageForView): string {
-  if (msg.isLocalSent) return 'Me'
-  return msg.senderName || msg.senderId || 'Unknown sender'
+  if (isMine(msg)) return 'Me'
+
+  const raw = (msg.raw || {}) as Record<string, any>
+
+  return (
+      msg.senderName ||
+      msg.senderUsername ||
+      msg.fromUserName ||
+      msg.fromName ||
+      raw.senderName ||
+      raw.senderUsername ||
+      raw.fromUserName ||
+      raw.fromName ||
+      getSenderId(msg) ||
+      'Unknown sender'
+  )
 }
 
 function formatTime(value?: string): string {
   if (!value) return '-'
 
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
+
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
 
   return date.toLocaleString()
 }
 
-function getCurrentUserIdOrUsername(): string {
-  const raw = localStorage.getItem('userInfo')
+function normalizeRole(role: string): Role {
+  const value = role.toLowerCase()
 
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw)
-      return (
-        parsed?.user?.id ||
-        parsed?.id ||
-        parsed?.userId ||
-        parsed?.user?.username ||
-        parsed?.username ||
-        localStorage.getItem('username') ||
-        ''
-      )
-    } catch {
-      // ignore
-    }
+  if (
+      value === 'student' ||
+      value === 'mentor' ||
+      value === 'coordinator' ||
+      value === 'consultant' ||
+      value === 'admin' ||
+      value === 'support'
+  ) {
+    return value
   }
 
-  return localStorage.getItem('userId') || localStorage.getItem('username') || ''
+  return 'student'
 }
 
-function getLocalSentStorageKey(): string {
-  return `mcs_local_sent_messages_${getCurrentUserIdOrUsername() || 'anonymous'}`
-}
+function getCurrentUserIdentifiers(): string[] {
+  const result = new Set<string>()
 
-function loadLocalSentMessages(): MessageForView[] {
   try {
-    const raw = localStorage.getItem(getLocalSentStorageKey())
-    if (!raw) return []
+    const raw = localStorage.getItem('userInfo')
+    const parsed = raw ? JSON.parse(raw) : {}
 
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
+    const candidates = [
+      parsed?.user?.id,
+      parsed?.user?.userId,
+      parsed?.user?.username,
+      parsed?.user?.account,
+      parsed?.id,
+      parsed?.userId,
+      parsed?.username,
+      parsed?.account,
+      localStorage.getItem('userId'),
+      localStorage.getItem('username'),
+    ]
 
-    return parsed.map((item) => ({
-      ...item,
-      localKey: item.localKey || item.messageId || item.id || `local-${Date.now()}`,
-      isLocalSent: true,
-    }))
+    candidates.forEach((value) => {
+      const text = String(value || '').trim()
+      if (text) result.add(text)
+    })
   } catch {
-    return []
+    const userId = String(localStorage.getItem('userId') || '').trim()
+    const username = String(localStorage.getItem('username') || '').trim()
+
+    if (userId) result.add(userId)
+    if (username) result.add(username)
   }
+
+  return Array.from(result)
 }
+
+function toFriendlyError(err: any, fallback: string): string {
+  return String(err?.message || err || fallback)
+}
+
 function toFriendlySendError(err: any): string {
   const text = String(err?.message || err || '')
 
   if (/permission|forbidden|403|access/i.test(text)) {
-    return 'Message sending is not allowed for this account. Please try another account or check the receiver ID.'
+    return 'You are not allowed to send this message. Please check whether the receiver is related to your role.'
   }
 
   return text || 'Failed to send message.'
@@ -688,7 +742,7 @@ h1 {
 
 .chat-shell {
   display: grid;
-  grid-template-columns: 310px minmax(0, 1fr);
+  grid-template-columns: 330px minmax(0, 1fr);
   gap: 18px;
   align-items: stretch;
 }
@@ -718,6 +772,18 @@ h1 {
   font-size: 18px;
 }
 
+.scope-note,
+.hint {
+  margin: 0 0 14px;
+  color: #6b7280;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.hint {
+  margin-top: 10px;
+}
+
 label {
   display: block;
   margin: 12px 0 7px;
@@ -744,8 +810,7 @@ textarea:focus {
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
 }
 
-.receiver-list,
-.quick-buttons {
+.receiver-list {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -773,20 +838,20 @@ textarea:focus {
   cursor: pointer;
 }
 
-.quick-button,
-.peer-button {
+.peer-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.peer-main {
   border: 1px solid #d1d5db;
   background: #f9fafb;
   color: #374151;
   border-radius: 9px;
   padding: 8px 10px;
-  cursor: pointer;
-}
-
-.peer-button {
-  display: block;
-  width: 100%;
-  margin-top: 8px;
   text-align: left;
 }
 
@@ -907,6 +972,20 @@ textarea:focus {
   background: #ffffff;
 }
 
+.composer-target {
+  margin-bottom: 10px;
+  color: #374151;
+  font-size: 13px;
+}
+
+.composer-target strong {
+  margin-right: 6px;
+}
+
+.muted {
+  color: #9ca3af;
+}
+
 .composer textarea {
   resize: vertical;
   min-height: 104px;
@@ -966,6 +1045,10 @@ button:disabled {
   }
 
   .role-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .peer-row {
     grid-template-columns: 1fr;
   }
 

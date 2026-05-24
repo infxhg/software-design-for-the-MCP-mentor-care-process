@@ -8,22 +8,12 @@
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
         <module name="Gateway-module" />
-        <module name="Organizational-Service" />
         <module name="Mentoring-Service" />
+        <module name="Organizational-Service" />
+        <module name="gateway-module" />
+        <module name="user-service" />
         <module name="B09-Security" />
         <module name="User-Service" />
-      </profile>
-      <profile name="Annotation profile for B09_MCPProject" enabled="true">
-        <sourceOutputDir name="../gateway-module/target/generated-sources/annotations" />
-        <sourceTestOutputDir name="../gateway-module/target/generated-test-sources/test-annotations" />
-        <outputRelativeToContentRoot value="true" />
-        <module name="gateway-module" />
-      </profile>
-      <profile name="Annotation profile for user-service" enabled="true">
-        <sourceOutputDir name="../user-service/target/generated-sources/annotations" />
-        <sourceTestOutputDir name="../user-service/target/generated-test-sources/test-annotations" />
-        <outputRelativeToContentRoot value="true" />
-        <module name="user-service" />
       </profile>
     </annotationProcessing>
   </component>
