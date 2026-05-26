@@ -4,8 +4,13 @@
       <div>
         <h1>Group Members</h1>
 
-        <!-- 修改点：这里明确显示 Group ID，避免和 mentorId 混淆 -->
-        <p class="desc">Group ID: {{ groupId }}</p>
+        <!--
+          修改点 (v8)：
+          展示用的 Group ID 走学年标识形式 (e.g. 2024-2025-Y1)，从 query string
+          ?gid=xxx 拿，URL path 里可能是 UUID 形式的 groupKey，不能直接展示。
+          没有 query 时（旧链路），fallback 到 path 参数。
+        -->
+        <p class="desc">Group ID: {{ displayGroupId }}</p>
       </div>
 
       <button class="secondary" @click="goBack">Back</button>
@@ -58,7 +63,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getRecordsByGroup } from '../api/mentoring'
 import type { StudentGroupRecord } from '../api/mentoring'
@@ -67,13 +72,21 @@ const route = useRoute()
 const router = useRouter()
 
 /**
- * 修改点：
- * 这里 route 参数必须是 groupId。
- * 前面 SearchMentorView / MentorResultView 点击 groupId 后会跳到：
- * /group-members/{groupId}
+ * 修改点 (v8)：
+ * URL path 是后端用于精确定位的标识：
+ *   - 新链路 (SearchMentorView)：path 是 groupKey (UUID 唯一标识)
+ *   - 旧链路 (MentorResultView 等)：path 仍是学年标识形式的 groupId
+ * 展示用的 group 学年标识从 query string ?gid=xxx 拿，
+ * 没传时 fallback 到 path 本身（旧链路场景下两者本就同值）。
  */
+<<<<<<< HEAD
 const groupId = String(route.params.groupId || '').trim()
 const majorId = String(route.query.majorId || '').trim() || undefined
+=======
+const routeParamId = String(route.params.groupId || '').trim()
+const queryGid = String(route.query.gid || '').trim()
+const displayGroupId = computed(() => queryGid || routeParamId)
+>>>>>>> 36950f5c86ffe93eb9f619609107ae4e0bb209ec
 
 const students = ref<StudentGroupRecord[]>([])
 const isLoading = ref(true)
@@ -81,11 +94,11 @@ const errorMsg = ref('')
 
 /**
  * 修改点：
- * group ID 格式校验。
- * 文档里 group ID 类似 AcademicYear-Year，例如 2024-2025-Y2。
- * 这里允许字母、数字、下划线、横线。
+ * group 标识符格式校验。允许学年标识 (2024-2025-Y2) 和 UUID
+ * (cc001122334455667788990011aa0001) 两种形态，
+ * 因此放宽长度上限到 64 字符。
  */
-const GROUP_ID_PATTERN = /^[A-Za-z0-9_-]{2,50}$/
+const GROUP_ID_PATTERN = /^[A-Za-z0-9_-]{2,64}$/
 
 function validateGroupId(input: string): string {
   if (!input) {
@@ -101,11 +114,7 @@ function validateGroupId(input: string): string {
 
 onMounted(async () => {
   try {
-    /**
-     * 修改点：
-     * 加 groupId 格式校验，避免 URL 里乱输。
-     */
-    const validationError = validateGroupId(groupId)
+    const validationError = validateGroupId(routeParamId)
 
     if (validationError) {
       errorMsg.value = validationError
@@ -113,11 +122,15 @@ onMounted(async () => {
     }
 
     /**
-     * 修改点：
-     * 这里必须用 groupId 查组内学生和记录。
-     * 不能用 mentorId。
+     * 修改点 (v8)：
+     * 用 routeParamId（可能是 groupKey UUID，也可能是学年标识 groupId）
+     * 调用后端，由后端去做精确定位。
      */
+<<<<<<< HEAD
     students.value = await getRecordsByGroup(groupId, majorId)
+=======
+    students.value = await getRecordsByGroup(routeParamId)
+>>>>>>> 36950f5c86ffe93eb9f619609107ae4e0bb209ec
   } catch (err: any) {
     if (err.message?.includes('401')) {
       errorMsg.value = 'Session expired. Please login again.'
@@ -140,7 +153,18 @@ function viewRecord(studentId: string) {
 }
 
 function goBack() {
-  router.push('/search-mentor')
+  /**
+   * 修改点 (v8)：
+   * 修复「点 Back 跳回空白 search-mentor 页」的问题。
+   * 优先用浏览器 history.back，这样能命中 SearchMentorView 的
+   * sessionStorage 恢复逻辑，回到带搜索结果的页面。
+   * 如果没有历史栈（用户直接通过 URL 进来）则退回 /search-mentor。
+   */
+  if (window.history.length > 1) {
+    router.back()
+  } else {
+    router.push('/search-mentor')
+  }
 }
 </script>
 

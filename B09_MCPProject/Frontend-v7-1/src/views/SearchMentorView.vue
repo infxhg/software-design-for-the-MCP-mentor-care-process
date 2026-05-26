@@ -7,7 +7,7 @@
       移除 group ID 搜索条件，文案改成 name / email。
     -->
     <p class="desc">
-      Faculty Consultants and MCP Coordinators can search mentor information by mentor name or email.
+      Faculty Consultants and MCP Coordinators can search mentor information by mentor name, email, or group ID.
     </p>
 
     <div class="form">
@@ -19,38 +19,29 @@
       -->
 
       <!--
-        修改点 (v6 task 3 & 4)：
-        Faculty Consultant 和 Coordinator 共用同一个 "Search By" 下拉，
-        只保留 Mentor Name / Mentor Email 两种选项 (移除 Group ID)。
+        修改点 (v8)：
+        Faculty Consultant 按 Group ID 搜索改走与 name / email 一致的接口
+        GET /api/org/mentors/search?keyword=xxx，后端在 keyword 上做多字段
+        模糊匹配（名字 / 邮箱 / groupId 都命中），并在返回中同时给出
+        groupIds (展示用) 和 groupKeys (唯一标识 UUID)。
+        因此不再需要 Major ID 这个用于歧义消解的辅助输入。
       -->
       <div v-if="role === 'consultant' || role === 'coordinator'" class="form-item">
         <label>Search By</label>
         <select v-model="searchField">
           <option value="name">Mentor Name</option>
           <option value="email">Mentor Email</option>
-          <!-- 修改点 (NEW)：仅 Faculty Consultant 可按 Group ID 查找对应 mentor -->
+          <!-- 修改点 (v8)：Faculty Consultant 可按 Group ID 搜索（走和 name/email 一样的接口） -->
           <option v-if="role === 'consultant'" value="groupId">Group ID</option>
         </select>
 
         <p class="hint" v-if="role === 'consultant'">
           Faculty Consultant: search globally across all faculties.
-          Choose <strong>Group ID</strong> to find the mentor assigned to a specific group.
         </p>
         <p class="hint" v-else>
           MCP Coordinator: search inside your department.
           Backend performs fuzzy matching against the selected field.
         </p>
-      </div>
-
-      <!-- 修改点 (NEW)：Group ID 模式下可选填 Major ID 用于歧义消解（FC/Admin 精确定位） -->
-      <div v-if="role === 'consultant' && searchField === 'groupId'" class="form-item">
-        <label>Major ID <span class="optional">(optional, for disambiguation)</span></label>
-        <input
-            v-model="majorId"
-            type="text"
-            placeholder="e.g. CST / AI"
-            @keyup.enter="searchMentor"
-        />
       </div>
 
       <div class="form-item">
@@ -101,21 +92,21 @@
           <td>{{ mentor.departmentName || 'N/A' }}</td>
 
           <!--
-            修改点 (v6 task 3 & 4)：
-            Group ID 列保留 (需求文档要求结果里展示 group ID)，
-            但只显示后端返回的 groupId / groupIds / mcpGroupId。
-            前端不再用本次搜索关键字反推 group ID，
-            因为用户已经不能按 group ID 搜了。
+            修改点 (v8)：
+            Group ID 列展示 mentor.groupIds[]（学年标识形式），点击时用同
+            位置的 mentor.groupKeys[]（UUID 唯一标识）跳转，
+            把学年标识通过 query 串带过去用于目标页展示。
+            getMentorGroups() 已把这两个数组配对成 { label, key } 列表。
           -->
           <td>
-            <template v-if="getMentorGroupIds(mentor).length > 0">
+            <template v-if="getMentorGroups(mentor).length > 0">
               <button
-                  v-for="gid in getMentorGroupIds(mentor)"
-                  :key="gid"
+                  v-for="g in getMentorGroups(mentor)"
+                  :key="g.key + '__' + g.label"
                   class="group-link"
-                  @click="showMembers(gid)"
+                  @click="showMembers(g)"
               >
-                {{ gid }}
+                {{ g.label }}
               </button>
             </template>
 
@@ -124,13 +115,13 @@
 
           <td>
             <button
-                v-if="getMentorGroupIds(mentor).length === 1"
-                @click="showMembers(getMentorGroupIds(mentor)[0])"
+                v-if="getMentorGroups(mentor).length === 1"
+                @click="showMembers(getMentorGroups(mentor)[0]!)"
             >
               Show Members
             </button>
 
-            <span v-else-if="getMentorGroupIds(mentor).length > 1" class="muted">
+            <span v-else-if="getMentorGroups(mentor).length > 1" class="muted">
                 Click group ID
               </span>
 
@@ -152,11 +143,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { getRole } from '../types'
 import { searchAllMentors, searchMyDeptMentors } from '../api/org'
-import { findMentorByGroupId } from '../api/mentoring'
 import type { MentorFromApi } from '../api/org'
 
 const router = useRouter()
@@ -164,22 +154,17 @@ const role = getRole()
 
 /**
  * 修改点 (NEW)：
- * 搜索字段在 name / email 之外，为 Faculty Consultant 增加 'groupId'，
- * 支持「按 Group ID 查找该组对应的 mentor」。
+ * 搜索字段在 name / email 之外，为 Faculty Consultant 增加 'groupId'。
+ * 修改点 (v8)：
+ * groupId 模式不再走 findMentorByGroupId（/api/mentoring/groups/search）；
+ * 改成与 name / email 完全一致的 searchAllMentors(kw)
+ * → GET /api/org/mentors/search?keyword=xxx
+ * 后端在 keyword 上做多字段模糊匹配（名字/邮箱/groupId），并返回
+ * { groupIds: ["2024-2025-Y1", ...], groupKeys: ["cc...", ...] } 配对结构。
  */
 type SearchField = 'name' | 'email' | 'groupId'
 const searchField = ref<SearchField>('name')
 
-/**
- * 修改点 (NEW)：Group ID 模式下可选的 Major ID（歧义时用于精确定位）。
- */
-const majorId = ref('')
-
-/**
- * 修改点 (v7)：
- * 删除 orgUnitId state —— coordinator 不再需要前端传 department id，
- * 后端从 JWT 推断。
- */
 const keyword = ref('')
 const message = ref('')
 const isError = ref(false)
@@ -187,6 +172,75 @@ const isLoading = ref(false)
 const actionMsg = ref('')
 
 const results = ref<MentorFromApi[]>([])
+
+/**
+ * 修改点 (v8)：
+ * sessionStorage 持久化搜索状态。
+ *
+ * 解决用户反馈问题：
+ *   在搜索结果页点击 group ID 进入 /group-members/* 查看完，
+ *   再点 Back 回到 /search-mentor 时页面是空的（state 丢失）。
+ *
+ * 思路：搜索成功后把 (searchField / keyword / results) 写进 sessionStorage；
+ * 组件 mounted 时如发现 sessionStorage 有缓存就恢复。
+ * 用户主动点 "Search Again" 时清空 sessionStorage。
+ * 注：sessionStorage 是 per-tab，关闭 tab 自动清，不会污染下次会话。
+ */
+const SEARCH_STATE_KEY = 'search-mentor-state'
+
+interface PersistedState {
+  searchField: SearchField
+  keyword: string
+  results: MentorFromApi[]
+}
+
+function persistState() {
+  try {
+    const payload: PersistedState = {
+      searchField: searchField.value,
+      keyword: keyword.value,
+      results: results.value,
+    }
+    sessionStorage.setItem(SEARCH_STATE_KEY, JSON.stringify(payload))
+  } catch {
+    // sessionStorage 不可用时静默忽略
+  }
+}
+
+function clearPersistedState() {
+  try {
+    sessionStorage.removeItem(SEARCH_STATE_KEY)
+  } catch {
+    // ignore
+  }
+}
+
+function restoreState(): boolean {
+  try {
+    const raw = sessionStorage.getItem(SEARCH_STATE_KEY)
+    if (!raw) return false
+    const parsed = JSON.parse(raw) as Partial<PersistedState>
+    if (parsed.searchField) searchField.value = parsed.searchField
+    if (typeof parsed.keyword === 'string') keyword.value = parsed.keyword
+    if (Array.isArray(parsed.results)) results.value = parsed.results as MentorFromApi[]
+    return Array.isArray(parsed.results) && parsed.results.length > 0
+  } catch {
+    return false
+  }
+}
+
+onMounted(() => {
+  restoreState()
+})
+
+// results 一旦变化就同步 sessionStorage（包括清空到 0 也保留快照，避免抖动）
+watch(
+    results,
+    () => {
+      if (results.value.length > 0) persistState()
+    },
+    { deep: false },
+)
 
 /**
  * 修改点 (v6 task 3 & 4)：
@@ -220,9 +274,10 @@ const keywordPlaceholder = computed(() => {
 
 /**
  * 修改点 (v6 task 3 & 4)：
- * 按 searchField 做不同的格式校验，删除 groupId 分支。
- *   - name  : 只防特殊字符，长度 1–100
- *   - email : 必须像邮箱片段 (字母/数字/._%+-/@)
+ * 按 searchField 做不同的格式校验。
+ *   - name    : 只防特殊字符，长度 1–100
+ *   - email   : 必须像邮箱片段
+ *   - groupId : 只允许字母/数字/连字符/下划线
  */
 function validateKeyword(input: string): string {
   if (!input) {
@@ -244,48 +299,106 @@ function validateKeyword(input: string): string {
     }
   }
 
-  // 修改点 (NEW)：Group ID 只允许字母/数字/连字符/下划线（兼容 2024-2025-Y1 与 group_a1）
   if (searchField.value === 'groupId') {
     const looksLikeGroupId = /^[A-Za-z0-9_-]+$/.test(input)
     if (!looksLikeGroupId) {
       return 'Warning: Group ID should only contain letters, digits, "-" and "_".'
     }
   }
-  // name 模式不再加额外限制
 
   return ''
 }
 
 /**
- * 后端可能返回 groupId、mcpGroupId、groupIds (单个 / 数组 / 逗号分隔字符串)。
- * 这里统一整理成 string[]。
+ * 修改点 (v8)：
+ * 后端 /api/org/mentors/search 返回的 mentor 同时带：
+ *   - groupIds  : 学年标识形式 (展示给用户)
+ *   - groupKeys : UUID 唯一标识形式 (做接口/精确定位)
+ * 两数组按下标一一配对。本函数把它们组装成 { label, key } 列表。
+ *
+ * 兼容降级：
+ *   - 如果只有单数 groupId（旧数据），用 label = key = groupId 兜底
+ *   - 如果只有 mcpGroupId（更早期数据），同样用它兜底
+ *   - 如果 groupIds 是 CSV 字符串，按逗号拆开
+ *
+ * 修改点 (v8.1 BUG FIX)：
+ * 1) 去重键改成只看 label —— 同一个学年标识不能在表里重复出现。
+ *    之前去重键是 label+key，导致 mentor 同时返回 groupIds[]
+ *    (带 groupKeys[]) 和单数 groupId (无对应 groupKey 只能回退成 label)
+ *    时，{label:"2024-2025-Y1",key:"cc...aa01"} 和
+ *    {label:"2024-2025-Y1",key:"2024-2025-Y1"} 被当成两条不同记录，
+ *    页面上出现重复按钮。
+ * 2) 单数 groupId / mcpGroupId 只在 groupIds[] 完全缺失时才走兜底。
+ *    新 API 的 mentor.groupId 永远等于 mentor.groupIds[0]，
+ *    在 groupIds[] 已经被处理过的情况下再处理一次毫无意义，反而会
+ *    丢失对应的 groupKey（导致跳转用错 key）。
  */
-function getMentorGroupIds(mentor: MentorFromApi): string[] {
-  const ids: string[] = []
+interface MentorGroupRef {
+  label: string
+  key: string
+}
 
-  if (mentor.groupId !== undefined && mentor.groupId !== null && String(mentor.groupId).trim()) {
-    ids.push(String(mentor.groupId).trim())
+function getMentorGroups(mentor: MentorFromApi): MentorGroupRef[] {
+  const result: MentorGroupRef[] = []
+  // 修改点 (v8.1 BUG FIX)：只按 label 去重
+  const seenLabels = new Set<string>()
+
+  function push(label: string, key: string) {
+    const lbl = label.trim()
+    const k = (key || label).trim()
+    if (!lbl) return
+    if (seenLabels.has(lbl)) return
+    seenLabels.add(lbl)
+    result.push({ label: lbl, key: k })
   }
 
-  if (mentor.mcpGroupId !== undefined && mentor.mcpGroupId !== null && String(mentor.mcpGroupId).trim()) {
-    ids.push(String(mentor.mcpGroupId).trim())
-  }
+  // 主路径：groupIds[] + groupKeys[] 按下标配对
+  const hasGroupIdsArray = Array.isArray(mentor.groupIds) && mentor.groupIds.length > 0
+  const hasGroupIdsString =
+      !hasGroupIdsArray && typeof mentor.groupIds === 'string' && mentor.groupIds.trim().length > 0
 
-  if (Array.isArray(mentor.groupIds)) {
-    for (const gid of mentor.groupIds) {
-      if (gid !== undefined && gid !== null && String(gid).trim()) {
-        ids.push(String(gid).trim())
-      }
-    }
-  } else if (typeof mentor.groupIds === 'string' && mentor.groupIds.trim()) {
-    mentor.groupIds
+  if (hasGroupIdsArray) {
+    const groupIdsArr = mentor.groupIds as string[]
+    const keys = Array.isArray(mentor.groupKeys) ? mentor.groupKeys : []
+    groupIdsArr.forEach((label, idx) => {
+      const lbl = String(label ?? '').trim()
+      if (!lbl) return
+      const k = String(keys[idx] ?? '').trim() || lbl
+      push(lbl, k)
+    })
+  } else if (hasGroupIdsString) {
+    // 兼容：groupIds 也可能是 CSV 字符串
+    ;(mentor.groupIds as string)
         .split(',')
-        .map((gid) => gid.trim())
+        .map((s) => s.trim())
         .filter(Boolean)
-        .forEach((gid) => ids.push(gid))
+        .forEach((lbl) => push(lbl, lbl))
+  } else {
+    /**
+     * 修改点 (v8.1 BUG FIX)：
+     * 只有当 groupIds 这种新格式完全缺失时，才走单数兜底字段。
+     * 否则单数 groupId 只是 groupIds[0] 的别名，再 push 一次会重复
+     * （且因为它没法关联到对应的 groupKey，会引入错误的 key）。
+     */
+    if (mentor.groupId !== undefined && mentor.groupId !== null && String(mentor.groupId).trim()) {
+      const lbl = String(mentor.groupId).trim()
+      const k = (mentor as any).groupKey
+          ? String((mentor as any).groupKey).trim()
+          : lbl
+      push(lbl, k)
+    }
+
+    if (
+        mentor.mcpGroupId !== undefined &&
+        mentor.mcpGroupId !== null &&
+        String(mentor.mcpGroupId).trim()
+    ) {
+      const lbl = String(mentor.mcpGroupId).trim()
+      push(lbl, lbl)
+    }
   }
 
-  return Array.from(new Set(ids))
+  return result
 }
 
 async function searchMentor() {
@@ -309,28 +422,20 @@ async function searchMentor() {
     let list: MentorFromApi[]
 
     if (role === 'consultant') {
-      if (searchField.value === 'groupId') {
-        /**
-         * 修改点 (NEW)：
-         * Faculty Consultant 按 Group ID 查找该组对应的 mentor。
-         * 链路：groups/search 拿到 group.mentorId → org/mentors/{学院} 解析完整信息。
-         */
-        list = await findMentorByGroupId(kw, majorId.value.trim() || undefined)
-      } else {
-        /**
-         * 修改点 (v6 task 3)：
-         * Faculty Consultant 全局走 GET /api/org/mentors/search?keyword=xxx。
-         * name / email 两种 mode 都打到同一个接口，后端按字段做模糊匹配。
-         */
-        list = await searchAllMentors(kw)
-      }
+      /**
+       * 修改点 (v8)：
+       * Faculty Consultant 三种模式 (name / email / groupId) 都走同一个接口：
+       *   GET /api/org/mentors/search?keyword=xxx
+       * 后端在 keyword 上做多字段模糊匹配，对 groupId 模式按 mentor 名下
+       * groupIds[] 命中。返回中包含 groupIds + groupKeys 用于结果展示。
+       */
+      list = await searchAllMentors(kw)
     } else if (role === 'coordinator') {
       /**
        * 修改点 (v7)：
        * Coordinator 改走 GET /api/org/my-dept/mentors?keyword=xxx。
        * 后端从 JWT token 中拿到 coordinator 的所属系，
        * 不再要求前端传 orgUnitId，结果天然限制在本系。
-       * 同样不支持 group ID 搜索。
        */
       list = await searchMyDeptMentors(kw)
     } else {
@@ -340,12 +445,15 @@ async function searchMentor() {
     }
 
     if (list.length === 0) {
+      // 空结果时不写 sessionStorage，避免下次进来直接显示 "0 found" 困扰
+      clearPersistedState()
       message.value = 'No matching mentor information is found.'
       isError.value = true
       return
     }
 
     results.value = list
+    // results 的 watch 会自动 persistState()
   } catch (err: any) {
     if (err.message?.includes('401')) {
       message.value = 'Session expired. Please login again.'
@@ -361,26 +469,39 @@ async function searchMentor() {
   }
 }
 
-function showMembers(groupId: string | undefined) {
+/**
+ * 修改点 (v8)：
+ * 跳转到 group-members 页面时：
+ *   - URL path 用 groupKey (UUID 唯一标识)，让目标页接口可以精确定位组；
+ *   - 学年标识形式通过 query 串 ?gid=xxx 带过去，目标页 heading 展示这个。
+ * 如果 mentor 没带 groupKey（旧数据），key 会回退成 label 本身，URL 退化
+ * 为原来的形态，与旧链路兼容。
+ */
+function showMembers(g: MentorGroupRef) {
   actionMsg.value = ''
 
-  const gid = String(groupId ?? '').trim()
+  const key = g.key.trim()
+  const label = g.label.trim()
 
-  if (!gid) {
+  if (!key) {
     actionMsg.value = 'Warning: Group ID is missing.'
     return
   }
 
-  router.push(`/group-members/${encodeURIComponent(gid)}`)
+  router.push({
+    path: '/group-members/' + encodeURIComponent(key),
+    query: key !== label ? { gid: label } : undefined,
+  })
 }
 
 function searchAgain() {
   results.value = []
   keyword.value = ''
-  majorId.value = ''
   message.value = ''
   isError.value = false
   actionMsg.value = ''
+  // 用户显式清空 → 同步清掉缓存
+  clearPersistedState()
 }
 
 function goBack() {

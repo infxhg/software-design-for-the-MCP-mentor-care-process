@@ -25,6 +25,15 @@ export interface MentorInfo {
   office?: string | null
   departmentName?: string | null
   groupId?: string | null
+  /**
+   * 修改点 (NEW)：mentor 同时被多个组分配时，后端 /api/org/mentors/search
+   * 会在 groupIds (学年标识形式，展示用) 和 groupKeys (UUID 唯一标识形式，
+   * 接口调用用) 各返回一个数组，且按相同下标一一配对。
+   * 为兼容旧数据，也允许字符串形式 (CSV)。
+   */
+  groupIds?: string[] | string | null
+  groupKeys?: string[] | null
+  groupKey?: string | null
   raw?: any
   [key: string]: any
 }
@@ -96,6 +105,27 @@ function normalizeMentor(raw: any): MentorInfo {
   const mentorId = String(raw?.mentorId ?? raw?.id ?? raw?.userId ?? '')
   const mentorName = String(raw?.mentorName ?? raw?.name ?? raw?.realName ?? raw?.username ?? mentorId)
 
+  /**
+   * 修改点 (NEW)：
+   * 显式归一化 groupIds (展示用 / 学年标识) 与 groupKeys (UUID / 唯一标识)。
+   * 接口示例：
+   *   "groupId":   "2024-2025-Y1",
+   *   "groupIds":  ["2024-2025-Y1", "2024-2025-Y2"],
+   *   "groupKeys": ["cc...aa01", "cc...cc03"]
+   * 两数组按索引一一配对，前端按 groupIds[i] 显示，按 groupKeys[i] 跳转/查询。
+   */
+  let groupIds: string[] | string | null = null
+  if (Array.isArray(raw?.groupIds)) {
+    groupIds = raw.groupIds.map((v: any) => String(v ?? '').trim()).filter(Boolean)
+  } else if (typeof raw?.groupIds === 'string') {
+    groupIds = raw.groupIds
+  }
+
+  let groupKeys: string[] | null = null
+  if (Array.isArray(raw?.groupKeys)) {
+    groupKeys = raw.groupKeys.map((v: any) => String(v ?? '').trim()).filter(Boolean)
+  }
+
   return {
     ...raw,
     id: raw?.id ?? mentorId,
@@ -106,6 +136,9 @@ function normalizeMentor(raw: any): MentorInfo {
     office: raw?.office ?? null,
     departmentName: raw?.departmentName ?? raw?.department ?? null,
     groupId: raw?.groupId ?? null,
+    groupIds,
+    groupKeys,
+    groupKey: raw?.groupKey ?? null,
     raw,
   }
 }
