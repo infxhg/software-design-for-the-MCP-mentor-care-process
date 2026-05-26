@@ -244,6 +244,27 @@ export async function lookupStudent(studentId: string): Promise<StudentInfo> {
 export const getStudentById = lookupStudent
 export const searchStudentById = lookupStudent
 
+/**
+ * 修改点 (新接口 B09 - 修正接口)：
+ * FC / Coordinator 专用，获取学生包含 major、groupId 的完整档案。
+ *   GET /api/org/student/{studentId}/profile
+ * 返回示例：
+ *   { studentId, username, name, email, phone, status,
+ *     major: "CST", groupId: "2024-2025-Y1", groupKey: "..." }
+ *
+ * 相比 lookupStudent 走的 /api/org/student/{studentId}（只返回基础用户信息，
+ * 没有 major / groupId），这个 profile 接口能把专业、所在组等信息带出来，
+ * 用于 Search Mentor → Group Members → View Record 页面展示。
+ *
+ * normalizeStudent 会把 major / groupId / status 映射到 StudentInfo 上。
+ */
+export async function getStudentProfile(studentId: string): Promise<StudentInfo> {
+  const res = await get<any>(
+    `/api/org/student/${encodeURIComponent(studentId)}/profile`,
+  )
+  return normalizeStudent(unwrap(res), studentId)
+}
+
 export async function searchStudents(keyword = ''): Promise<StudentInfo[]> {
   const res = await get<any[]>('/api/org/students/search', keyword ? { keyword } : undefined)
   return (unwrap(res) || []).map((item) => normalizeStudent(item))

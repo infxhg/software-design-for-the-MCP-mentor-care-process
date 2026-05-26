@@ -32,7 +32,7 @@
         </div>
 
         <div v-if="studentExt">
-          <strong>Major</strong><p>{{ studentExt.majorId || 'N/A' }}</p>
+          <strong>Major</strong><p>{{ studentExt.major || studentExt.majorId || 'N/A' }}</p>
         </div>
 
         <div v-if="studentExt">
@@ -95,7 +95,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { getRecordsByStudent, lookupStudent } from '../api/mentoring'
 import { getRole } from '../types'
 import type { McpRecord } from '../api/mentoring'
-import type { StudentFromApi } from '../api/org'
+import { getStudentProfile, type StudentFromApi } from '../api/org'
 
 const route = useRoute()
 const router = useRouter()
@@ -159,12 +159,26 @@ onMounted(async () => {
     }
 
     /**
-     * 修改点 (新接口 B09 / Mentor 权限收敛 - 纵深防御)：
-     * 这个 view 路由 meta 已经限制为 consultant/coordinator，
-     * 但出于纵深防御，统一走 lookupStudent，
-     * 即使 mentor 通过 URL 直接进来，API 层也会拒绝越权访问。
+     * 修改点 (新接口 B09 / view record 显示 major 等信息)：
+     * 本页路由已限定 consultant / coordinator，正好是 profile 接口
+     * (GET /api/org/student/{id}/profile) 允许的 FC / Coor 角色。
+     * 优先用 profile 接口拿到含 major / groupId / status 的完整档案；
+     * 接口不可用（旧后端）时回退到原 lookupStudent，保证向后兼容。
      */
-    const studentResult = await lookupStudent(studentId)
+    const role = getRole()
+    let studentResult: StudentFromApi | null = null
+
+    if (role === 'consultant' || role === 'coordinator') {
+      try {
+        studentResult = await getStudentProfile(studentId)
+      } catch {
+        studentResult = null
+      }
+    }
+
+    if (!studentResult) {
+      studentResult = await lookupStudent(studentId)
+    }
 
     if (!studentResult) {
       errorMsg.value = 'Student not found.'
