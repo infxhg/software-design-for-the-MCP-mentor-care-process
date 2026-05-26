@@ -17,6 +17,32 @@
           @keyup.enter="searchStudent"
       />
 
+      <!--
+        修改点 (NEW)：进一步缩小检索范围 —— 按学年(Academic Year)与导师姓名(Mentor Name)。
+        两者均为可选；留空则不过滤，保持原有行为。
+        对应接口 GET /api/mentoring/records/student/{id}?academicYear=&mentorKeyword=
+      -->
+      <div class="filter-grid">
+        <div class="filter-item">
+          <label class="sub-label">Academic Year <span class="optional">(optional)</span></label>
+          <input
+              v-model="academicYear"
+              type="text"
+              placeholder="e.g. 2024-2025"
+              @keyup.enter="searchStudent"
+          />
+        </div>
+        <div class="filter-item">
+          <label class="sub-label">Mentor Name <span class="optional">(optional)</span></label>
+          <input
+              v-model="mentorName"
+              type="text"
+              placeholder="e.g. zhang"
+              @keyup.enter="searchStudent"
+          />
+        </div>
+      </div>
+
       <div class="buttons">
         <button @click="searchStudent" :disabled="isLoading">
           {{ isLoading ? 'Searching...' : 'Search' }}
@@ -60,8 +86,17 @@
       <div class="record-section">
         <div class="record-header">
           <h2>Interview Records</h2>
-          <button v-if="canEdit" @click="editRecord">Edit Interview Record</button>
+          <div class="record-actions">
+            <!-- 修改点 (NEW)：在已展示学生的前提下，按当前学年/导师筛选条件重新拉取记录 -->
+            <button class="secondary" @click="reloadRecords" :disabled="isRecordLoading">
+              {{ isRecordLoading ? 'Filtering…' : 'Apply Filters' }}
+            </button>
+            <button v-if="canEdit" @click="editRecord">Edit Interview Record</button>
+          </div>
         </div>
+
+        <!-- 修改点 (NEW)：显示当前生效的筛选条件 -->
+        <p v-if="activeFilterText" class="active-filter">Filtered by: {{ activeFilterText }}</p>
 
         <!-- 修改点：records 加载失败时显示提示，不再静默失败 -->
         <p v-if="recordMessage" class="message" :class="{ error: isRecordError }">
@@ -119,17 +154,41 @@ const router = useRouter()
 const route = useRoute()
 
 const studentId = ref('')
+const academicYear = ref('')
+const mentorName = ref('')
 const message = ref('')
 const isError = ref(false)
 const isLoading = ref(false)
 
 const recordMessage = ref('')
 const isRecordError = ref(false)
+const isRecordLoading = ref(false)
 
 const foundStudent = ref<StudentFromApi | null>(null)
 const interviewRecords = ref<McpRecord[]>([])
 
 const canEdit = computed(() => getRole() === 'mentor')
+
+/**
+ * 修改点 (NEW)：把当前生效的筛选条件拼成一句可读文本，展示给用户。
+ */
+const activeFilterText = computed(() => {
+  const parts: string[] = []
+  if (academicYear.value.trim()) parts.push(`Academic Year = ${academicYear.value.trim()}`)
+  if (mentorName.value.trim()) parts.push(`Mentor = ${mentorName.value.trim()}`)
+  return parts.join(', ')
+})
+
+/**
+ * 修改点 (NEW)：把学年/导师输入整理成接口可用的过滤对象。
+ * 留空的字段不会被传给后端。
+ */
+function buildRecordFilter() {
+  return {
+    academicYear: academicYear.value.trim() || undefined,
+    mentorKeyword: mentorName.value.trim() || undefined,
+  }
+}
 
 /**
  * 修改点：
@@ -219,16 +278,13 @@ async function searchStudent() {
 
     try {
       /**
-       * 修改点 (FIX)：
-       * 之前直接调 getRecordsByStudent → /mentoring/records/student/{id}
-       * 这个接口对 Mentor 角色没权限（403），导致 mentor 搜到学生但
-       * interview record 死活展示不出来。
-       *
-       * 改用 fetchRecordsForStudent —— 内部按 role 分流：
-       *   mentor      → /mentoring/records/mine，再按 studentId 过滤
-       *   coordinator → /mentoring/records/student/{studentId}
+       * 修改点 (FIX + NEW)：
+       * fetchRecordsForStudent 现在接收可选的筛选条件
+       * { academicYear, mentorKeyword }，对应接口的同名 query 参数：
+       *   academicYear → 按 groupId 前缀过滤学年
+       *   mentorKeyword → 按导师 realName 模糊匹配
        */
-      interviewRecords.value = await fetchRecordsForStudent(input)
+      interviewRecords.value = await fetchRecordsForStudent(input, buildRecordFilter())
     } catch (recordErr: any) {
       recordMessage.value = recordErr.message?.includes('403')
           ? 'Authorization warning: You do not have permission to view interview records.'
@@ -250,6 +306,39 @@ async function searchStudent() {
   }
 }
 
+/**
+ * 修改点 (NEW)：
+ * 在已经搜到某个学生后，仅根据当前的 Academic Year / Mentor Name
+ * 重新拉取该学生的访谈记录，无需重新校验或重查学生信息。
+ */
+async function reloadRecords() {
+  if (!foundStudent.value) {
+    // 还没搜过学生，等价于发起一次完整搜索
+    await searchStudent()
+    return
+  }
+
+  const input = studentId.value.trim()
+  if (validateStudentId(input)) {
+    await searchStudent()
+    return
+  }
+
+  recordMessage.value = ''
+  isRecordError.value = false
+  isRecordLoading.value = true
+  try {
+    interviewRecords.value = await fetchRecordsForStudent(input, buildRecordFilter())
+  } catch (recordErr: any) {
+    recordMessage.value = recordErr.message?.includes('403')
+        ? 'Authorization warning: You do not have permission to view interview records.'
+        : 'Interview records could not be loaded.'
+    isRecordError.value = true
+  } finally {
+    isRecordLoading.value = false
+  }
+}
+
 function editRecord() {
   if (!foundStudent.value) return
 
@@ -267,6 +356,8 @@ function clearResult() {
   isError.value = false
   recordMessage.value = ''
   isRecordError.value = false
+  academicYear.value = ''
+  mentorName.value = ''
 }
 
 function goBack() {
@@ -319,6 +410,34 @@ input {
 
 .buttons {
   margin-top: 16px;
+}
+
+/* 修改点 (NEW)：学年/导师筛选区样式 */
+.filter-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 14px;
+}
+.sub-label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+  font-size: 13px;
+}
+.sub-label .optional {
+  font-weight: 400;
+  color: #9ca3af;
+  font-size: 12px;
+}
+.record-actions {
+  display: flex;
+  gap: 10px;
+}
+.active-filter {
+  margin-top: 6px;
+  font-size: 13px;
+  color: #2563eb;
 }
 
 .buttons button {

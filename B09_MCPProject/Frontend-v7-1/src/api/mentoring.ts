@@ -9,7 +9,14 @@ import {
   unwrap,
   type QueryParams,
 } from './request'
-import { getOrgTree, isOrgType, lookupStudent as lookupOrgStudent, type StudentInfo } from './org'
+import {
+  getOrgTree,
+  getMentorsByOrgUnit,
+  isOrgType,
+  lookupStudent as lookupOrgStudent,
+  type MentorInfo,
+  type StudentInfo,
+} from './org'
 
 export interface InterviewRecord {
   recordId?: string
@@ -233,8 +240,25 @@ function normalizeTime(value?: string): string {
   return match ? `${match[1]}:${match[2]}` : text
 }
 
-export async function fetchRecordsForStudent(studentId: string): Promise<InterviewRecord[]> {
-  const res = await get<any[]>(`/api/mentoring/records/student/${encodeURIComponent(studentId)}`)
+export interface StudentRecordFilter {
+  /** 学年标签，例如 "2024-2025"。后端按 groupId.startsWith(academicYear) 过滤 */
+  academicYear?: string
+  /** 导师姓名关键字，忽略大小写模糊匹配导师 realName */
+  mentorKeyword?: string
+}
+
+export async function fetchRecordsForStudent(
+  studentId: string,
+  filter?: StudentRecordFilter,
+): Promise<InterviewRecord[]> {
+  const params: QueryParams = {}
+  if (filter?.academicYear) params.academicYear = filter.academicYear
+  if (filter?.mentorKeyword) params.mentorKeyword = filter.mentorKeyword
+
+  const res = await get<any[]>(
+    `/api/mentoring/records/student/${encodeURIComponent(studentId)}`,
+    Object.keys(params).length ? params : undefined,
+  )
   return (unwrap(res) || []).map(normalizeRecord)
 }
 
@@ -302,8 +326,16 @@ export async function lookupStudent(studentId: string): Promise<StudentInfo | nu
 
 export async function searchGroup(
   groupId?: string,
+  majorId?: string,
 ): Promise<{ group?: GroupInfo; members?: GroupMember[]; raw?: any }> {
-  const res = await get<any>('/api/mentoring/groups/search', groupId ? { groupId } : undefined)
+  const params: QueryParams = {}
+  if (groupId) params.groupId = groupId
+  if (majorId) params.majorId = majorId
+
+  const res = await get<any>(
+    '/api/mentoring/groups/search',
+    Object.keys(params).length ? params : undefined,
+  )
   const data = unwrap(res)
 
   if (Array.isArray(data)) {
@@ -377,8 +409,14 @@ export async function getGroup(groupId: string): Promise<GroupInfo> {
 
 export const getGroupById = getGroup
 
-export async function getGroupMembers(groupId: string): Promise<GroupMember[]> {
-  const res = await get<any[]>(`/api/mentoring/groups/${encodeURIComponent(groupId)}/members`)
+export async function getGroupMembers(
+  groupId: string,
+  majorId?: string,
+): Promise<GroupMember[]> {
+  const res = await get<any[]>(
+    `/api/mentoring/groups/${encodeURIComponent(groupId)}/members`,
+    majorId ? { majorId } : undefined,
+  )
   return (unwrap(res) || []).map(normalizeMember)
 }
 
@@ -389,25 +427,104 @@ export async function getGroupsByMentor(mentorId: string): Promise<GroupInfo[]> 
   return (unwrap(res) || []).map(normalizeGroup)
 }
 
-export async function addStudentToGroup(groupId: string, studentId: string): Promise<void> {
+export async function addStudentToGroup(
+  groupId: string,
+  studentId: string,
+  majorId?: string,
+  status?: string,
+): Promise<void> {
+  const params: QueryParams = {}
+  if (majorId) params.majorId = majorId
+  if (status) params.status = status
+
   const res = await post<null>(
     `/api/mentoring/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(studentId)}`,
+    undefined,
+    Object.keys(params).length ? { params } : {},
   )
   unwrap(res)
 }
 
-export async function removeStudentFromGroup(groupId: string, studentId: string): Promise<void> {
+export async function removeStudentFromGroup(
+  groupId: string,
+  studentId: string,
+  majorId?: string,
+): Promise<void> {
   const res = await del<null>(
     `/api/mentoring/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(studentId)}`,
+    majorId ? { params: { majorId } } : {},
   )
   unwrap(res)
 }
 
-export async function changeGroupMentor(groupId: string, mentorId: string): Promise<GroupInfo> {
-  const res = await put<any>(`/api/mentoring/groups/${encodeURIComponent(groupId)}/mentor`, {
-    mentorId,
-  })
+export async function changeGroupMentor(
+  groupId: string,
+  mentorId: string,
+  majorId?: string,
+): Promise<GroupInfo> {
+  const res = await put<any>(
+    `/api/mentoring/groups/${encodeURIComponent(groupId)}/mentor`,
+    { mentorId },
+    majorId ? { params: { majorId } } : {},
+  )
   return normalizeGroup(unwrap(res))
+}
+
+/**
+ * 修改点 (NEW)：Faculty Consultant 通过 Group ID 查找该组对应的 mentor。
+ *
+ * 接口链路（均来自 B09 接口文档，无新增后端接口）：
+ *   1) GET /api/mentoring/groups/search?groupId=&majorId=
+ *      → data.group 里带 mentorId / facultyOrgId / parentId
+ *   2) GET /api/org/mentors/{orgUnitId}（组所在学院/系的导师列表）
+ *      → 用 mentorId 匹配出完整导师卡片（姓名/邮箱/office/系）
+ *
+ * 返回 MentorInfo[]（带上 groupId，便于结果页直接 "Show Members"）。
+ *   - 组不存在 → 返回 []
+ *   - 组存在但未分配导师 → 抛错，提示该组暂无导师
+ *   - 学院导师列表里匹配不到时 → 兜底返回仅含 mentorId + groupId 的最小卡片
+ */
+export async function findMentorByGroupId(
+  groupId: string,
+  majorId?: string,
+): Promise<MentorInfo[]> {
+  const { group } = await searchGroup(groupId, majorId)
+
+  if (!group || !group.groupId) {
+    return []
+  }
+
+  if (!group.mentorId) {
+    throw new Error('This group has no assigned mentor.')
+  }
+
+  // 用组所在的学院/系把 mentorId 解析为完整导师信息
+  const orgScope = group.facultyOrgId || group.parentId
+  if (orgScope) {
+    try {
+      const mentors = await getMentorsByOrgUnit(orgScope)
+      const matched = mentors.find((m) => m.mentorId === group.mentorId)
+      if (matched) {
+        return [{ ...matched, groupId: group.groupId }]
+      }
+    } catch {
+      // 拿不到导师列表时走下面的兜底
+    }
+  }
+
+  // 兜底：至少返回 mentorId + groupId，结果页仍可点 "Show Members"
+  return [
+    {
+      mentorId: group.mentorId,
+      mentorName: group.mentorName || group.mentorId,
+      name: group.mentorName || group.mentorId,
+      email: null,
+      office: null,
+      departmentName: group.department ?? null,
+      groupId: group.groupId,
+      raw: group,
+    } as MentorInfo,
+  ]
 }
 
 export async function importMcpAllocation(file: File, facultyOrgId?: string): Promise<any> {
@@ -519,9 +636,12 @@ export async function sendInterviewInvitation(
   _studentId: string,
   slots: Array<{ date?: string; slotDate?: string; time?: string; startTime?: string }>,
 ): Promise<AppointmentSlot[]> {
-  if (!slots.length) throw new Error('At least one slot is required')
+  // 修改点：先取出首元素并判空，让 TS 在严格索引检查下正确收窄类型，
+  // 避免 slots[0] 被推断为可能 undefined（TS2532）。
+  const first = slots[0]
+  if (!first) throw new Error('At least one slot is required')
 
-  const firstDate = slots[0].slotDate || slots[0].date
+  const firstDate = first.slotDate || first.date
   if (!firstDate) throw new Error('slotDate is required')
 
   const startTimes = slots
