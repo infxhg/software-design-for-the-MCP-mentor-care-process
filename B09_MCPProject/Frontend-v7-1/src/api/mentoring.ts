@@ -550,7 +550,12 @@ export async function lookupStudent(studentId: string): Promise<StudentInfo | nu
 export async function searchGroup(
   groupId?: string,
   majorId?: string,
-): Promise<{ group?: GroupInfo; members?: GroupMember[]; raw?: any }> {
+): Promise<{
+  group?: GroupInfo
+  groups?: GroupInfo[]
+  members?: GroupMember[]
+  raw?: any
+}> {
   const params: QueryParams = {}
   if (groupId) params.groupId = groupId
   if (majorId) params.majorId = majorId
@@ -562,47 +567,59 @@ export async function searchGroup(
   const data = unwrap(res)
 
   if (Array.isArray(data)) {
+    const groups = data.map(normalizeGroup)
     return {
-      group: data[0] ? normalizeGroup(data[0]) : undefined,
+      group: groups[0],
+      groups,
       members: [],
       raw: data,
     }
   }
 
-  if (data?.group || data?.members) {
+  if (data?.group || data?.groups || data?.members) {
     const members = Array.isArray(data?.members)
       ? data.members.map(normalizeMember)
       : []
 
     /**
-     * 修改点 (FIX)：
-     * 后端 /api/mentoring/groups/search?groupId=xxx 在某些情况下不会返回
-     * 嵌套的 data.group，而是把 members 和 group 级字段（groupId / mentorId /
-     * facultyOrgId / parentId / mentorName 等）一起平铺在 data 顶层；
-     * 此前 searchGroup 只识别 data.group，导致 findMentorByGroupId 拿不到
-     * group 对象，SearchMentorView 直接走 "No matching mentor information
-     * is found." 分支。
+     * 修改点 (v8 multi-group)：
+     * 后端在按 groupId 模糊匹配（同学年同年级跨 major）时，返回结构是
+     *   data: { members: [...], groups: [ {groupId, name, mentorId, ...}, ... ] }
+     * 当同时传 majorId 做精确定位时通常只返回 1 个 group（仍在 groups[] 中）。
      *
-     * 这里改成：若没有显式的 data.group，就把 data 顶层（剔除 members）
-     * 当成 group raw，再用 members[0].groupId 或调用方传入的 groupId 兜底
-     * 推导 groupId，让上层 findMentorByGroupId 仍能拿到 groupId /
-     * mentorId / facultyOrgId 去解析导师。
+     * 这里把所有候选 group 用新增的 `groups` 字段暴露给上层，
+     * 同时把 `group` 字段填成 groups[0]（旧消费者只看 group 单数仍可用）。
      */
+    let groups: GroupInfo[] = []
+    if (Array.isArray(data?.groups)) {
+      groups = data.groups.map(normalizeGroup)
+    }
+
     let group: GroupInfo | undefined
     if (data?.group) {
       group = normalizeGroup(data.group)
+      if (groups.length === 0) groups = [group]
+    } else if (groups.length > 0) {
+      group = groups[0]
     } else {
-      const { members: _omitMembers, ...rest } = data
+      /**
+       * 修改点 (FIX，保留原兼容)：
+       * 没有 data.group / data.groups，但有 data.members 时
+       * （后端把 group 级字段平铺在 data 顶层）。
+       */
+      const { members: _omitMembers, groups: _omitGroups, ...rest } = data
       const inferredGroupId =
         rest?.groupId ?? rest?.id ?? rest?.unitId ?? members[0]?.groupId ?? groupId ?? ''
 
       if (inferredGroupId || rest?.mentorId || Object.keys(rest).length > 0) {
         group = normalizeGroup({ ...rest, groupId: inferredGroupId })
+        groups = [group]
       }
     }
 
     return {
       group,
+      groups,
       members,
       raw: data,
     }
@@ -610,6 +627,7 @@ export async function searchGroup(
 
   return {
     group: data ? normalizeGroup(data) : undefined,
+    groups: data ? [normalizeGroup(data)] : [],
     members: [],
     raw: data,
   }

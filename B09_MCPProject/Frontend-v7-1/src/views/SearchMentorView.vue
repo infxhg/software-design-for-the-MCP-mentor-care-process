@@ -3,55 +3,33 @@
     <h1>Search Mentor Info</h1>
 
     <!--
-      修改点 (v6 task 3 & 4)：
-      移除 group ID 搜索条件，文案改成 name / email。
+      修改点 (v10)：
+      后端 /api/org/mentors/search 对 keyword 做全字段模糊匹配
+      （name / email / groupId / mentorId 等都会命中），所以前端
+      不再需要 "Search By" 下拉。用户在一个输入框里输任意片段即可。
     -->
     <p class="desc">
-      Faculty Consultants and MCP Coordinators can search mentor information by mentor name, email, or group ID.
+      Faculty Consultants and MCP Coordinators can search mentor information by
+      entering a mentor name, email, or group ID — the backend does fuzzy matching
+      across all of these fields.
     </p>
 
     <div class="form">
-      <!--
-        修改点 (v7)：
-        Coordinator 不再需要手动输入 Department Org Unit ID。
-        后端通过 JWT 自动识别 coordinator 所在系，
-        前端只保留 "Search By" 下拉 + keyword 输入框。
-      -->
-
-      <!--
-        修改点 (v8)：
-        Faculty Consultant 按 Group ID 搜索改走与 name / email 一致的接口
-        GET /api/org/mentors/search?keyword=xxx，后端在 keyword 上做多字段
-        模糊匹配（名字 / 邮箱 / groupId 都命中），并在返回中同时给出
-        groupIds (展示用) 和 groupKeys (唯一标识 UUID)。
-        因此不再需要 Major ID 这个用于歧义消解的辅助输入。
-      -->
-      <div v-if="role === 'consultant' || role === 'coordinator'" class="form-item">
-        <label>Search By</label>
-        <select v-model="searchField">
-          <option value="name">Mentor Name</option>
-          <option value="email">Mentor Email</option>
-          <!-- 修改点 (v8)：Faculty Consultant 可按 Group ID 搜索（走和 name/email 一样的接口） -->
-          <option v-if="role === 'consultant'" value="groupId">Group ID</option>
-        </select>
+      <div class="form-item">
+        <label>Search Keyword</label>
+        <input
+            v-model="keyword"
+            type="text"
+            placeholder="Enter mentor name, email, or group ID (e.g. Zhang San / zhangsan@bnbu.edu.cn / 2024-2025-Y1)"
+            @keyup.enter="searchMentor"
+        />
 
         <p class="hint" v-if="role === 'consultant'">
           Faculty Consultant: search globally across all faculties.
         </p>
-        <p class="hint" v-else>
+        <p class="hint" v-else-if="role === 'coordinator'">
           MCP Coordinator: search inside your department.
-          Backend performs fuzzy matching against the selected field.
         </p>
-      </div>
-
-      <div class="form-item">
-        <label>{{ keywordLabel }}</label>
-        <input
-            v-model="keyword"
-            type="text"
-            :placeholder="keywordPlaceholder"
-            @keyup.enter="searchMentor"
-        />
       </div>
 
       <div class="buttons">
@@ -78,8 +56,12 @@
           <th>Email</th>
           <th>Office</th>
           <th>Department / Org</th>
+          <!--
+            修改点 (v10)：
+            去掉了最右边的 Operation 列。Group ID 列里每个 group label
+            本身就是可点击的按钮，等价于原 Operation 列的 "Show Members"。
+          -->
           <th>Group ID</th>
-          <th>Operation</th>
         </tr>
         </thead>
 
@@ -112,23 +94,6 @@
 
             <span v-else class="muted">N/A</span>
           </td>
-
-          <td>
-            <button
-                v-if="getMentorGroups(mentor).length === 1"
-                @click="showMembers(getMentorGroups(mentor)[0]!)"
-            >
-              Show Members
-            </button>
-
-            <span v-else-if="getMentorGroups(mentor).length > 1" class="muted">
-                Click group ID
-              </span>
-
-            <span v-else class="muted">
-                No group ID
-              </span>
-          </td>
         </tr>
         </tbody>
       </table>
@@ -143,7 +108,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { getRole } from '../types'
 import { searchAllMentors, searchMyDeptMentors } from '../api/org'
@@ -153,17 +118,11 @@ const router = useRouter()
 const role = getRole()
 
 /**
- * 修改点 (NEW)：
- * 搜索字段在 name / email 之外，为 Faculty Consultant 增加 'groupId'。
- * 修改点 (v8)：
- * groupId 模式不再走 findMentorByGroupId（/api/mentoring/groups/search）；
- * 改成与 name / email 完全一致的 searchAllMentors(kw)
- * → GET /api/org/mentors/search?keyword=xxx
- * 后端在 keyword 上做多字段模糊匹配（名字/邮箱/groupId），并返回
- * { groupIds: ["2024-2025-Y1", ...], groupKeys: ["cc...", ...] } 配对结构。
+ * 修改点 (v10)：
+ * 去掉 SearchField 类型和 searchField state——后端做全字段模糊匹配，
+ * 前端不再让用户挑搜哪个字段，用户在单个 keyword 输入框里输入任意片段
+ * （name/email/groupId）都能命中。
  */
-type SearchField = 'name' | 'email' | 'groupId'
-const searchField = ref<SearchField>('name')
 
 const keyword = ref('')
 const message = ref('')
@@ -181,15 +140,14 @@ const results = ref<MentorFromApi[]>([])
  *   在搜索结果页点击 group ID 进入 /group-members/* 查看完，
  *   再点 Back 回到 /search-mentor 时页面是空的（state 丢失）。
  *
- * 思路：搜索成功后把 (searchField / keyword / results) 写进 sessionStorage；
- * 组件 mounted 时如发现 sessionStorage 有缓存就恢复。
- * 用户主动点 "Search Again" 时清空 sessionStorage。
- * 注：sessionStorage 是 per-tab，关闭 tab 自动清，不会污染下次会话。
+ * 修改点 (v10)：持久化的字段从 (searchField, keyword, results) 简化为
+ * (keyword, results)。
+ *
+ * sessionStorage 是 per-tab，关闭 tab 自动清，不会污染下次会话。
  */
 const SEARCH_STATE_KEY = 'search-mentor-state'
 
 interface PersistedState {
-  searchField: SearchField
   keyword: string
   results: MentorFromApi[]
 }
@@ -197,7 +155,6 @@ interface PersistedState {
 function persistState() {
   try {
     const payload: PersistedState = {
-      searchField: searchField.value,
       keyword: keyword.value,
       results: results.value,
     }
@@ -220,7 +177,6 @@ function restoreState(): boolean {
     const raw = sessionStorage.getItem(SEARCH_STATE_KEY)
     if (!raw) return false
     const parsed = JSON.parse(raw) as Partial<PersistedState>
-    if (parsed.searchField) searchField.value = parsed.searchField
     if (typeof parsed.keyword === 'string') keyword.value = parsed.keyword
     if (Array.isArray(parsed.results)) results.value = parsed.results as MentorFromApi[]
     return Array.isArray(parsed.results) && parsed.results.length > 0
@@ -233,7 +189,7 @@ onMounted(() => {
   restoreState()
 })
 
-// results 一旦变化就同步 sessionStorage（包括清空到 0 也保留快照，避免抖动）
+// results 一旦变化就同步 sessionStorage
 watch(
     results,
     () => {
@@ -243,41 +199,12 @@ watch(
 )
 
 /**
- * 修改点 (v6 task 3 & 4)：
- * keyword 输入框的 label / placeholder 跟随 searchField 变化。
- */
-const keywordLabel = computed(() => {
-  switch (searchField.value) {
-    case 'name':
-      return 'Mentor Name'
-    case 'email':
-      return 'Mentor Email'
-    case 'groupId':
-      return 'Group ID'
-    default:
-      return 'Search Keyword'
-  }
-})
-
-const keywordPlaceholder = computed(() => {
-  switch (searchField.value) {
-    case 'name':
-      return 'Enter mentor name, e.g. Zhang San'
-    case 'email':
-      return 'Enter mentor email, e.g. zhangsan@bnbu.edu.cn'
-    case 'groupId':
-      return 'Enter group ID, e.g. 2024-2025-Y1 or group_a1'
-    default:
-      return ''
-  }
-})
-
-/**
- * 修改点 (v6 task 3 & 4)：
- * 按 searchField 做不同的格式校验。
- *   - name    : 只防特殊字符，长度 1–100
- *   - email   : 必须像邮箱片段
- *   - groupId : 只允许字母/数字/连字符/下划线
+ * 修改点 (v10)：
+ * 由于不再区分 name/email/groupId 三种模式，校验放宽成"通用关键字"：
+ *   - 不为空
+ *   - 长度 1–100
+ *   - 不含明显的注入危险字符 <>"'`;
+ * 不再按 field 做不同的字符集校验。
  */
 function validateKeyword(input: string): string {
   if (!input) {
@@ -290,20 +217,6 @@ function validateKeyword(input: string): string {
 
   if (/[<>"'`;]/.test(input)) {
     return 'Warning: Search keyword contains invalid characters.'
-  }
-
-  if (searchField.value === 'email') {
-    const looksLikeEmailFragment = /^[A-Za-z0-9._%+\-@]+$/.test(input)
-    if (!looksLikeEmailFragment) {
-      return 'Warning: Email keyword should only contain letters, digits, dots, "@" and "_+-".'
-    }
-  }
-
-  if (searchField.value === 'groupId') {
-    const looksLikeGroupId = /^[A-Za-z0-9_-]+$/.test(input)
-    if (!looksLikeGroupId) {
-      return 'Warning: Group ID should only contain letters, digits, "-" and "_".'
-    }
   }
 
   return ''
@@ -423,11 +336,10 @@ async function searchMentor() {
 
     if (role === 'consultant') {
       /**
-       * 修改点 (v8)：
-       * Faculty Consultant 三种模式 (name / email / groupId) 都走同一个接口：
-       *   GET /api/org/mentors/search?keyword=xxx
-       * 后端在 keyword 上做多字段模糊匹配，对 groupId 模式按 mentor 名下
-       * groupIds[] 命中。返回中包含 groupIds + groupKeys 用于结果展示。
+       * 修改点 (v10)：
+       * Faculty Consultant 直接走 GET /api/org/mentors/search?keyword=xxx。
+       * 后端在 keyword 上做全字段模糊匹配（name / email / groupId / mentorId
+       * 都参与命中），返回中包含 groupIds + groupKeys 用于结果展示。
        */
       list = await searchAllMentors(kw)
     } else if (role === 'coordinator') {
