@@ -158,13 +158,42 @@
                 :class="{ 'msg-outgoing': isMyOutgoing(msg) }"
             >
               <div class="msg-meta">
-                <span class="sender-text">
-                  <strong>{{ getSenderLabel(msg) }}</strong>
-                  <template v-if="getReceiverLabel(msg)">
-                    →
-                    <strong>{{ getReceiverLabel(msg) }}</strong>
+                <div class="msg-meta-body">
+                  <template v-if="isMyOutgoing(msg)">
+                    <div class="meta-line">
+                      <span class="meta-pill meta-pill-sent">Sent</span>
+                      <span class="meta-pill meta-pill-me">{{ getSenderShort(msg) }}</span>
+                    </div>
+                    <div
+                        class="meta-line meta-line-to"
+                        :title="getRecipientFull(msg)"
+                    >
+                      <span class="meta-label-to">To</span>
+                      <span
+                          v-if="getRecipientRoleLabel(msg)"
+                          class="meta-pill"
+                          :class="roleBadgeClass(getRecipientRole(msg))"
+                      >
+                        {{ getRecipientRoleLabel(msg) }}
+                      </span>
+                      <strong class="meta-target-name">{{ getRecipientShort(msg) }}</strong>
+                    </div>
                   </template>
-                </span>
+
+                  <template v-else>
+                    <div class="meta-line">
+                      <span class="meta-pill meta-pill-in">From</span>
+                      <span
+                          v-if="getSenderRoleLabel(msg)"
+                          class="meta-pill"
+                          :class="roleBadgeClass(getSenderRole(msg))"
+                      >
+                        {{ getSenderRoleLabel(msg) }}
+                      </span>
+                      <strong class="meta-target-name">{{ getSenderShort(msg) }}</strong>
+                    </div>
+                  </template>
+                </div>
 
                 <span class="time-text">
                   {{ formatTime(msg.createTime || msg.createdAt || msg.timestamp) }}
@@ -186,9 +215,11 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { getRoleLabel, type Role } from '../../types'
+import { getRecipientTypeLabel, normalizeRecipientType } from '../../utils/communicationPolicy'
 import {
   getAvailableReceivers,
   listMyMessages,
+  recordOutgoingMessageRecipient,
   sendNormalMessage,
   type AvailableReceiver,
   type MessageEntity,
@@ -411,7 +442,23 @@ async function handleSend() {
   clearNotice()
 
   try {
+    const selected = receiverOptions.value.find(
+        (item) => String(item.id) === targetId || String(item.userId) === targetId,
+    )
+
     await sendNormalMessage(targetId, text, receiverOptions.value)
+
+    recordOutgoingMessageRecipient({
+      content: text,
+      recipientId: targetId,
+      recipientName:
+          selected?.name ||
+          selected?.realName ||
+          selected?.username ||
+          targetId,
+      recipientRole: selected?.role || selected?.type,
+      recipientUsername: selected?.username,
+    })
 
     messageContent.value = ''
     showNotice('Message sent successfully.', false)
@@ -422,6 +469,24 @@ async function handleSend() {
   } finally {
     isSending.value = false
   }
+}
+
+function getCurrentUserAliases(): string[] {
+  const info = getStoredUserInfo()
+  return [
+    currentUserId,
+    currentUsername,
+    info.user?.id,
+    info.user?.userId,
+    info.user?.username,
+    info.userId,
+    info.id,
+    info.username,
+    localStorage.getItem('userId'),
+    localStorage.getItem('username'),
+  ]
+      .map((item) => String(item ?? '').trim().toLowerCase())
+      .filter(Boolean)
 }
 
 function isMyOutgoing(msg: MessageEntity): boolean {
@@ -437,11 +502,15 @@ function isMyOutgoing(msg: MessageEntity): boolean {
       .map((item) => String(item ?? '').trim().toLowerCase())
       .filter(Boolean)
 
-  const currentValues = [currentUserId, currentUsername]
-      .map((item) => String(item ?? '').trim().toLowerCase())
-      .filter(Boolean)
+  return getCurrentUserAliases().some((value) => senderValues.includes(value))
+}
 
-  return currentValues.some((value) => senderValues.includes(value))
+function shortenDisplay(value: string, max = 22): string {
+  const text = String(value || '').trim()
+  if (!text) return '—'
+  if (text.length <= max) return text
+  if (/^[0-9a-f-]{20,}$/i.test(text)) return `${text.slice(0, 8)}…`
+  return `${text.slice(0, max)}…`
 }
 
 function getSenderLabel(msg: MessageEntity): string {
@@ -457,16 +526,54 @@ function getSenderLabel(msg: MessageEntity): string {
   return String(value || 'Unknown')
 }
 
-function getReceiverLabel(msg: MessageEntity): string {
-  const value =
+function getSenderShort(msg: MessageEntity): string {
+  return shortenDisplay(getSenderLabel(msg))
+}
+
+function getRecipientFull(msg: MessageEntity): string {
+  return String(
+      msg.recipientDisplayName ||
       msg.receiverName ||
-      msg.raw?.receiverName ||
+      msg.raw?.recipientDisplayName ||
       msg.raw?.recipientName ||
       msg.recipientId ||
       msg.receiverId ||
-      msg.toUserId
+      msg.toUserId ||
+      '',
+  ).trim()
+}
 
-  return value ? String(value) : ''
+function getRecipientShort(msg: MessageEntity): string {
+  const full = getRecipientFull(msg)
+  return full ? shortenDisplay(full) : '— (not recorded)'
+}
+
+function getRecipientRole(msg: MessageEntity): string {
+  return String(
+      msg.recipientRole ||
+      msg.raw?.recipientRole ||
+      msg.raw?.receiverRole ||
+      '',
+  ).trim()
+}
+
+function getRecipientRoleLabel(msg: MessageEntity): string {
+  const role = getRecipientRole(msg)
+  return role ? getRecipientTypeLabel(role) : ''
+}
+
+function getSenderRole(msg: MessageEntity): string {
+  return String(msg.senderRole || msg.raw?.senderRole || '').trim()
+}
+
+function getSenderRoleLabel(msg: MessageEntity): string {
+  const role = getSenderRole(msg)
+  return role ? getRecipientTypeLabel(role) : ''
+}
+
+function roleBadgeClass(role: string): string {
+  const type = normalizeRecipientType(role)
+  return type === 'unknown' ? 'role-unknown' : `role-${type}`
 }
 
 function clearNotice() {
@@ -757,15 +864,117 @@ function goHome() {
 
 .msg-meta {
   font-size: 12px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
   color: #64748b;
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.msg-meta-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.meta-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.4;
+}
+
+.meta-line-to {
+  margin-top: 4px;
+}
+
+.meta-label-to {
+  font-weight: 700;
+  color: #2563eb;
+}
+
+.meta-pill {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+  white-space: nowrap;
+}
+
+.meta-pill-sent {
+  background: #dbeafe;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+
+.meta-pill-in {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.meta-pill-me {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meta-target-name {
+  font-size: 13px;
+  color: #0f172a;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  vertical-align: bottom;
+}
+
+.role-student {
+  background: #ecfdf5;
+  color: #047857;
+  border-color: #a7f3d0;
+}
+
+.role-mentor {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+}
+
+.role-coordinator {
+  background: #f5f3ff;
+  color: #6d28d9;
+  border-color: #ddd6fe;
+}
+
+.role-consultant {
+  background: #fff7ed;
+  color: #c2410c;
+  border-color: #fed7aa;
+}
+
+.role-unknown {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.time-text {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: 11px;
 }
 
 .msg-outgoing .msg-meta {
   color: #3b82f6;
+}
+
+.msg-outgoing .meta-target-name {
+  color: #1e3a8a;
 }
 
 .msg-text {

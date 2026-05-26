@@ -49,6 +49,27 @@ export interface StudentInfo {
   [key: string]: any
 }
 
+export interface FacultyConsultantInfo {
+  id?: string
+  consultantId: string
+  consultantName: string
+  name?: string
+  username?: string
+  realName?: string
+  email?: string | null
+  facultyOrgId?: string | null
+  facultyName?: string | null
+  raw?: any
+  [key: string]: any
+}
+
+export interface MyScopeSearchResult {
+  mentors: MentorInfo[]
+  students: StudentInfo[]
+  facultyConsultants: FacultyConsultantInfo[]
+  raw?: any
+}
+
 export type MentorFromApi = MentorInfo
 export type StudentFromApi = StudentInfo
 
@@ -85,6 +106,27 @@ function normalizeMentor(raw: any): MentorInfo {
     office: raw?.office ?? null,
     departmentName: raw?.departmentName ?? raw?.department ?? null,
     groupId: raw?.groupId ?? null,
+    raw,
+  }
+}
+
+function normalizeFacultyConsultant(raw: any): FacultyConsultantInfo {
+  const consultantId = String(raw?.consultantId ?? raw?.id ?? raw?.userId ?? raw?.username ?? '')
+  const consultantName = String(
+    raw?.consultantName ?? raw?.name ?? raw?.realName ?? raw?.username ?? consultantId,
+  )
+
+  return {
+    ...raw,
+    id: raw?.id ?? consultantId,
+    consultantId,
+    consultantName,
+    name: consultantName,
+    realName: raw?.realName ?? consultantName,
+    username: raw?.username ?? consultantId,
+    email: raw?.email ?? null,
+    facultyOrgId: raw?.facultyOrgId ?? null,
+    facultyName: raw?.facultyName ?? null,
     raw,
   }
 }
@@ -195,3 +237,23 @@ export async function getAllStudents(): Promise<StudentInfo[]> {
   const res = await get<any[]>('/api/user/students/all')
   return (unwrap(res) || []).map((item) => normalizeStudent(item))
 }
+
+
+export async function searchMyScope(keyword = ''): Promise<MyScopeSearchResult> {
+  const res = await get<any>(
+    '/api/org/my-scope/search',
+    keyword.trim() ? { keyword: keyword.trim() } : undefined,
+  )
+  const data = unwrap(res) || {}
+
+  return {
+    mentors: Array.isArray(data.mentors) ? data.mentors.map(normalizeMentor) : [],
+    students: Array.isArray(data.students) ? data.students.map((item: any) => normalizeStudent(item)) : [],
+    facultyConsultants: Array.isArray(data.facultyConsultants)
+      ? data.facultyConsultants.map(normalizeFacultyConsultant)
+      : [],
+    raw: data,
+  }
+}
+
+export const searchCurrentScope = searchMyScope

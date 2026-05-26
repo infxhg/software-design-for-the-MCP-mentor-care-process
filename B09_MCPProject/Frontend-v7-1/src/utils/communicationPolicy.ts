@@ -35,9 +35,9 @@ export const MAX_MESSAGE_LENGTH = 500
 
 const ALLOWED_RECIPIENTS: Record<AppRole, RecipientType[]> = {
   student: ['mentor'],
-  mentor: ['student'],
+  mentor: ['student', 'coordinator', 'consultant'],
   coordinator: ['student', 'mentor', 'consultant'],
-  consultant: ['student', 'coordinator'],
+  consultant: ['student', 'coordinator', 'mentor'],
   admin: [],
   support: [],
   unknown: [],

@@ -73,6 +73,7 @@ const router = useRouter()
  * /group-members/{groupId}
  */
 const groupId = String(route.params.groupId || '').trim()
+const majorId = String(route.query.majorId || '').trim() || undefined
 
 const students = ref<StudentGroupRecord[]>([])
 const isLoading = ref(true)
@@ -116,7 +117,7 @@ onMounted(async () => {
      * 这里必须用 groupId 查组内学生和记录。
      * 不能用 mentorId。
      */
-    students.value = await getRecordsByGroup(groupId)
+    students.value = await getRecordsByGroup(groupId, majorId)
   } catch (err: any) {
     if (err.message?.includes('401')) {
       errorMsg.value = 'Session expired. Please login again.'

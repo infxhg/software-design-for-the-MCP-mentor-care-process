@@ -17,11 +17,12 @@
 
       <div v-else>
         <div class="student-info">
-          <p><strong>Student ID:</strong> {{ student.id }}</p>
+          <p><strong>Student ID:</strong> {{ student.studentId || student.id || studentId }}</p>
           <p><strong>Username:</strong> {{ student.username }}</p>
           <p><strong>Name:</strong> {{ student.realName || student.username }}</p>
           <p><strong>Email:</strong> {{ student.email || 'N/A' }}</p>
           <p><strong>Phone:</strong> {{ student.phone || 'N/A' }}</p>
+          <p><strong>Group ID:</strong> {{ student.groupId || 'N/A' }}</p>
         </div>
 
         <p v-if="recordMessage" class="message" :class="{ error: isRecordError }">
@@ -122,6 +123,7 @@ import {
   deleteRecord as deleteRecordApi,
 } from '../api/mentoring'
 import { getRole } from '../types'
+import { getStrictStudentIdValidationMessage } from '../api/mentoring'
 import type { McpRecord } from '../api/mentoring'
 import type { StudentFromApi } from '../api/org'
 
@@ -154,18 +156,8 @@ const deletingIndex = ref<number>(-1)
 
 const canEdit = computed(() => getRole() === 'mentor')
 
-const STUDENT_ID_PATTERN = /^\d{9}$/
-
 function validateStudentId(input: string): string {
-  if (!input) {
-    return 'Student ID cannot be empty.'
-  }
-
-  if (!STUDENT_ID_PATTERN.test(input)) {
-    return 'Invalid Student ID format. Student ID should be 9 digits.'
-  }
-
-  return ''
+  return getStrictStudentIdValidationMessage(input)
 }
 
 /**
@@ -272,7 +264,37 @@ function addRecord() {
     problemStatement: '',
     interviewSummary: '',
     followupAction: '',
+    groupId: student.value?.groupId || '',
   })
+}
+
+function getRecordId(record: McpRecord): string {
+  return String(record.recordId || record.id || '').trim()
+}
+
+function normalizeComparableText(value: unknown): string {
+  return String(value || '').trim()
+}
+
+function findOriginalRecord(record: McpRecord): McpRecord | undefined {
+  const id = getRecordId(record)
+  if (!id) return undefined
+  return originalRecords.value.find((item) => getRecordId(item) === id)
+}
+
+function hasRecordChanged(record: McpRecord): boolean {
+  const original = findOriginalRecord(record)
+  if (!original) return true
+
+  return (
+      normalizeComparableText(record.groupId || student.value?.groupId) !== normalizeComparableText(original.groupId || student.value?.groupId) ||
+      normalizeComparableText(record.interviewDate) !== normalizeComparableText(original.interviewDate) ||
+      normalizeComparableText(record.interviewTime) !== normalizeComparableText(original.interviewTime) ||
+      normalizeComparableText(record.problemStatement) !== normalizeComparableText(original.problemStatement) ||
+      normalizeComparableText(record.interviewSummary) !== normalizeComparableText(original.interviewSummary) ||
+      normalizeComparableText(record.followupAction ?? record.followUpAction) !==
+      normalizeComparableText(original.followupAction ?? original.followUpAction)
+  )
 }
 
 /**
@@ -295,8 +317,10 @@ async function deleteRecord(index: number) {
   const r = records.value[index]
   if (!r) return
 
+  const recordId = getRecordId(r)
+
   // 未持久化条目：本地移除即可
-  if (!r.recordId) {
+  if (!recordId) {
     records.value.splice(index, 1)
     return
   }
@@ -307,7 +331,7 @@ async function deleteRecord(index: number) {
   )
   if (!ok) return
 
-  const ridToDelete = r.recordId
+  const ridToDelete = recordId
   deletingIndex.value = index
 
   try {
@@ -315,12 +339,12 @@ async function deleteRecord(index: number) {
 
     // 成功 → 从两个数组里都移除
     // 用 recordId 反查 index，避免在 await 过程中数组被其它操作修改导致下标错位
-    const liveIdx = records.value.findIndex((x) => x.recordId === ridToDelete)
+    const liveIdx = records.value.findIndex((x) => getRecordId(x) === ridToDelete)
     if (liveIdx >= 0) {
       records.value.splice(liveIdx, 1)
     }
 
-    const origIdx = originalRecords.value.findIndex((x) => x.recordId === ridToDelete)
+    const origIdx = originalRecords.value.findIndex((x) => getRecordId(x) === ridToDelete)
     if (origIdx >= 0) {
       originalRecords.value.splice(origIdx, 1)
     }
@@ -334,9 +358,9 @@ async function deleteRecord(index: number) {
       message.value = 'Authorization warning: You are not allowed to delete this record.'
     } else if (err.message?.includes('404')) {
       // 后端已经没有这条 → 视为删除成功，把本地也清掉
-      const liveIdx = records.value.findIndex((x) => x.recordId === ridToDelete)
+      const liveIdx = records.value.findIndex((x) => getRecordId(x) === ridToDelete)
       if (liveIdx >= 0) records.value.splice(liveIdx, 1)
-      const origIdx = originalRecords.value.findIndex((x) => x.recordId === ridToDelete)
+      const origIdx = originalRecords.value.findIndex((x) => getRecordId(x) === ridToDelete)
       if (origIdx >= 0) originalRecords.value.splice(origIdx, 1)
 
       message.value = 'Interview record deleted.'
@@ -354,6 +378,7 @@ function validateRecords(): boolean {
   for (const r of records.value) {
     if (
         !r.interviewDate ||
+        !r.interviewTime ||
         !r.problemStatement?.trim() ||
         !r.interviewSummary?.trim() ||
         !r.followupAction?.trim()
@@ -369,19 +394,25 @@ function validateRecords(): boolean {
       return false
     }
 
-    if (r.problemStatement.length > 200) {
+    if (!/^\d{2}:\d{2}$/.test(String(r.interviewTime))) {
+      message.value = 'Validation warning: Invalid time format.'
+      isMsgError.value = true
+      return false
+    }
+
+    if ((r.problemStatement || '').length > 200) {
       message.value = 'Length limit warning: Problem statement is too long.'
       isMsgError.value = true
       return false
     }
 
-    if (r.interviewSummary.length > 300) {
+    if ((r.interviewSummary || '').length > 300) {
       message.value = 'Length limit warning: Interview summary is too long.'
       isMsgError.value = true
       return false
     }
 
-    if (r.followupAction.length > 200) {
+    if ((r.followupAction || '').length > 200) {
       message.value = 'Length limit warning: Follow-up action is too long.'
       isMsgError.value = true
       return false
@@ -397,20 +428,21 @@ async function saveRecords() {
 
   if (!validateRecords()) return
 
+  if (records.value.length === 0) {
+    message.value = 'No interview records to save.'
+    isMsgError.value = false
+    return
+  }
+
   try {
+    let createdCount = 0
+    let replacedCount = 0
+    let skippedCount = 0
+
     for (const r of records.value) {
-      /**
-       * 修改点 (v8)：
-       * create 和 update 共用同一个 endpoint POST /api/mentoring/records，
-       * body 结构完全一致 —— 只是 update 多带一个 recordId。
-       *
-       * 之前 update 分支只发 { recordId, interviewSummary, followupAction } 3 字段，
-       * mentor 在表单里改 date / time / problemStatement 后保存会被前端丢掉。
-       * 现在两个分支共享同一个 base payload，所有字段都能改并被后端接收。
-       */
       const base = {
         studentId: studentId,
-        groupId: r.groupId || '',
+        groupId: r.groupId || student.value?.groupId || '',
         interviewDate: r.interviewDate,
         interviewTime: r.interviewTime,
         problemStatement: r.problemStatement,
@@ -418,26 +450,36 @@ async function saveRecords() {
         followupAction: r.followupAction,
       }
 
-      if (r.recordId) {
-        // 修改点 (v8)：update 也发完整 body
-        await updateRecord({ recordId: r.recordId, ...base })
+      const recordId = getRecordId(r)
+
+      if (recordId) {
+        if (!hasRecordChanged(r)) {
+          skippedCount += 1
+          continue
+        }
+
+        // Updated API: POST /api/mentoring/records is create-only now.
+        // updateRecord() in api/mentoring.ts simulates replace by creating the new
+        // version first, then deleting the old recordId.
+        await updateRecord({ recordId, ...base })
+        replacedCount += 1
       } else {
-        // 新建：完整 body，无 recordId
         await createRecord(base)
+        createdCount += 1
       }
     }
 
-    message.value = 'Interview records saved successfully.'
+    const parts: string[] = []
+    if (createdCount) parts.push(`${createdCount} created`)
+    if (replacedCount) parts.push(`${replacedCount} replaced`)
+    if (skippedCount) parts.push(`${skippedCount} unchanged`)
+
+    message.value = `Interview records saved successfully${parts.length ? ` (${parts.join(', ')}).` : '.'}`
     isMsgError.value = false
 
     // Reload to get server-assigned recordIds
     try {
       const fetched = await fetchRecordsForStudent(studentId)
-      /**
-       * 修改点 (v6 task 2)：
-       * 保存后重载同样需要归一化，否则刚保存的记录展示完
-       * 立刻被服务端原始 ISO 时间字符串覆盖，日期框又会空白。
-       */
       records.value = fetched.map(normalizeRecordForEdit)
       originalRecords.value = records.value.map((r) => ({ ...r }))
     } catch {

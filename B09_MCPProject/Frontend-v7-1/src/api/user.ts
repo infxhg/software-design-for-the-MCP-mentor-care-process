@@ -436,19 +436,34 @@ export async function getUserInfoByIdApi(userId: string | number): Promise<UserI
 }
 
 export async function registerSendCode(email: string): Promise<unknown> {
+  const skipAuth = { skipAuth: true }
+
   return callFirst<unknown>([
-    () => post('/api/user/register/sendCode', { email }),
-    () => post('/api/user/sendRegisterCode', { email }),
-    () => get('/api/user/register/sendCode', { email }),
+    () =>
+      post('/api/user/register', undefined, {
+        ...skipAuth,
+        params: { emailAccount: email },
+      }),
+    () => post('/api/user/register', { email }, skipAuth),
+    () => post('/api/user/register/sendCode', { email }, skipAuth),
+    () => post('/api/user/sendRegisterCode', { email }, skipAuth),
+    () => get('/api/user/register/sendCode', { email }, skipAuth),
   ])
 }
 
 export const sendRegisterCode = registerSendCode
 
 export async function sendRegisterCodeByQuery(email: string): Promise<unknown> {
+  const skipAuth = { skipAuth: true }
+
   return callFirst<unknown>([
-    () => get('/api/user/register/sendCode', { email }),
-    () => get('/api/user/sendRegisterCode', { email }),
+    () =>
+      post('/api/user/register', undefined, {
+        ...skipAuth,
+        params: { emailAccount: email },
+      }),
+    () => get('/api/user/register/sendCode', { email }, skipAuth),
+    () => get('/api/user/sendRegisterCode', { email }, skipAuth),
   ])
 }
 
@@ -461,6 +476,10 @@ export async function registerVerify(payload: AnyRecord): Promise<unknown> {
 
 export async function updateUserInfo(payload: AnyRecord): Promise<UserInfoDTO> {
   return callFirst<UserInfoDTO>([
+    // Updated OpenAPI: /api/user/updateInfo is POST, not PUT.
+    () => post('/api/user/updateInfo', payload),
+
+    // Backward-compatible fallbacks for older backend builds.
     () => put('/api/user/updateInfo', payload),
     () => put('/api/user/userInfo', payload),
   ])
@@ -591,12 +610,8 @@ export async function listFacultyLogs(params: AnyRecord = {}): Promise<Operation
 }
 
 export async function getLogsByUser(userId: string | number): Promise<OperationLog[]> {
-  const data = await callFirst<unknown>([
-    () => get(`/api/user/logs/${userId}`),
-    () => get('/api/user/logs', { userId }),
-  ])
-
-  return asArray(data) as OperationLog[]
+  const res = await get<unknown>('/api/user/logs', { userId: String(userId) })
+  return asArray(unwrap(res)) as OperationLog[]
 }
 
 export async function listAllStudents(params: AnyRecord = {}): Promise<UserAccount[]> {

@@ -31,24 +31,44 @@ const CoordinatorForwardCaseView = () => import('../views/coordinator/Coordinato
 const ConsultantImportView = () => import('../views/consultant/ConsultantImportView.vue')
 const ConsultantChangeMentorsView = () => import('../views/consultant/ConsultantChangeMentorsView.vue')
 const ConsultantUpdateGroupView = () => import('../views/consultant/ConsultantUpdateGroupView.vue')
-const ConsultantDesignateCoordinatorsView = () => import('../views/consultant/ConsultantDesignateCoordinatorsView.vue')
+const ConsultantDesignateCoordinatorsView = () =>
+  import('../views/consultant/ConsultantDesignateCoordinatorsView.vue')
 const ConsultantExportRecordsView = () => import('../views/consultant/ConsultantExportRecordsView.vue')
 const ConsultantGroupListView = () => import('../views/consultant/ConsultantGroupListView.vue')
 const ConsultantGroupDetailView = () => import('../views/consultant/ConsultantGroupDetailView.vue')
 const ConsultantDepartmentListView = () => import('../views/consultant/ConsultantDepartmentListView.vue')
-const ConsultantDepartmentDetailView = () => import('../views/consultant/ConsultantDepartmentDetailView.vue')
+const ConsultantDepartmentDetailView = () =>
+  import('../views/consultant/ConsultantDepartmentDetailView.vue')
 
 const AdminConsultantManagementView = () => import('../views/admin/AdminConsultantManagementView.vue')
 const AdminAddConsultantView = () => import('../views/admin/AdminAddConsultantView.vue')
 const AdminOrgManagementView = () => import('../views/admin/AdminOrgManagementView.vue')
 const AdminOrgManualSetupView = () => import('../views/admin/AdminOrgManualSetupView.vue')
 const AdminOrgExcelSetupView = () => import('../views/admin/AdminOrgExcelSetupView.vue')
-const AdminSupportingStaffManagementView = () => import('../views/admin/AdminSupportingStaffManagementView.vue')
+const AdminSupportingStaffManagementView = () =>
+  import('../views/admin/AdminSupportingStaffManagementView.vue')
 const AdminAddSupportingStaffView = () => import('../views/admin/AdminAddSupportingStaffView.vue')
 
 const SupportSearchLogView = () => import('../views/support/SupportSearchLogView.vue')
 const SupportLogInfoView = () => import('../views/support/SupportLogInfoView.vue')
 const SupportReplyFeedbackView = () => import('../views/support/SupportReplyFeedbackView.vue')
+
+function normalizeRole(value: unknown): Role | null {
+  const role = String(value || '').trim().toLowerCase()
+
+  if (role === 'student') return 'student'
+  if (role === 'mentor') return 'mentor'
+  if (role === 'coordinator') return 'coordinator'
+  if (role === 'consultant') return 'consultant'
+  if (role === 'admin') return 'admin'
+  if (role === 'support') return 'support'
+
+  return null
+}
+
+function getStoredRole(): Role | null {
+  return normalizeRole(localStorage.getItem('role'))
+}
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -57,24 +77,77 @@ const router = createRouter({
     { path: '/login', component: LoginView },
     { path: '/main', component: MainView },
 
-    { path: '/search-student', component: SearchStudentView, meta: { allowedRoles: ['mentor', 'coordinator', 'consultant'] } },
-    { path: '/student-detail/:studentId', component: StudentDetailView, meta: { allowedRoles: ['mentor', 'coordinator', 'consultant'] } },
-    { path: '/edit-record/:studentId', component: EditRecordView, meta: { allowedRoles: ['mentor'] } },
+    {
+      path: '/search-student',
+      component: SearchStudentView,
+      meta: { allowedRoles: ['mentor', 'coordinator', 'consultant'] },
+    },
+    {
+      path: '/student-detail/:studentId',
+      component: StudentDetailView,
+      meta: { allowedRoles: ['mentor', 'coordinator', 'consultant'] },
+    },
+    {
+      path: '/edit-record/:studentId',
+      component: EditRecordView,
+      meta: { allowedRoles: ['mentor'] },
+    },
 
-    { path: '/search-mentor', component: SearchMentorView, meta: { allowedRoles: ['consultant', 'coordinator'] } },
-    { path: '/mentor-result', component: MentorResultView, meta: { allowedRoles: ['consultant', 'coordinator'] } },
-    { path: '/group-members/:groupId', component: GroupMembersView, meta: { allowedRoles: ['consultant', 'coordinator'] } },
-    { path: '/student-record/:studentId', component: StudentRecordView, meta: { allowedRoles: ['consultant', 'coordinator'] } },
+    {
+      path: '/search-mentor',
+      component: SearchMentorView,
+      meta: { allowedRoles: ['consultant', 'coordinator'] },
+    },
+    {
+      path: '/mentor-result',
+      component: MentorResultView,
+      meta: { allowedRoles: ['consultant', 'coordinator'] },
+    },
+    {
+      path: '/group-members/:groupId',
+      component: GroupMembersView,
+      meta: { allowedRoles: ['consultant', 'coordinator'] },
+    },
+    {
+      path: '/student-record/:studentId',
+      component: StudentRecordView,
+      meta: { allowedRoles: ['consultant', 'coordinator'] },
+    },
 
-    { path: '/mentor/export-records', component: MentorExportRecordsView, meta: { allowedRoles: ['mentor'] } },
-    { path: '/mentor/forward-case', component: MentorForwardCaseView, meta: { allowedRoles: ['mentor'] } },
-    { path: '/mentor/interview-arrangement', component: InterviewArrangementView, meta: { allowedRoles: ['mentor'] } },
-    { path: '/mentor/interview-arrangement/venue', component: InterviewArrangementVenueView, meta: { allowedRoles: ['mentor'] } },
+    {
+      path: '/mentor/export-records',
+      component: MentorExportRecordsView,
+      meta: { allowedRoles: ['mentor'] },
+    },
+    {
+      path: '/mentor/forward-case',
+      component: MentorForwardCaseView,
+      meta: { allowedRoles: ['mentor'] },
+    },
+    {
+      path: '/mentor/interview-arrangement',
+      component: InterviewArrangementView,
+      meta: { allowedRoles: ['mentor'] },
+    },
+    {
+      path: '/mentor/interview-arrangement/venue',
+      component: InterviewArrangementVenueView,
+      meta: { allowedRoles: ['mentor'] },
+    },
 
     {
       path: '/feedback',
       component: FeedbackView,
-      meta: { allowedRoles: ['mentor', 'student', 'coordinator', 'consultant', 'admin', 'support'] },
+      meta: {
+        allowedRoles: [
+          'mentor',
+          'student',
+          'coordinator',
+          'consultant',
+          'admin',
+          'support',
+        ],
+      },
     },
     {
       path: '/communication',
@@ -87,63 +160,165 @@ const router = createRouter({
       meta: { allowedRoles: ['mentor', 'coordinator', 'consultant', 'student'] },
     },
 
-    { path: '/student', component: StudentHomeView, meta: { allowedRoles: ['student'] } },
-    { path: '/student/check-mentor', component: CheckMentorInfoView, meta: { allowedRoles: ['student'] } },
-    { path: '/student/communication', component: StudentCommunicationView, meta: { allowedRoles: ['student'] } },
-    { path: '/student/appointment-select', component: StudentAppointmentSelectView, meta: { allowedRoles: ['student'] } },
+    {
+      path: '/student',
+      component: StudentHomeView,
+      meta: { allowedRoles: ['student'] },
+    },
+    {
+      path: '/student/check-mentor',
+      component: CheckMentorInfoView,
+      meta: { allowedRoles: ['student'] },
+    },
+    {
+      path: '/student/communication',
+      component: StudentCommunicationView,
+      meta: { allowedRoles: ['student'] },
+    },
+    {
+      path: '/student/appointment-select',
+      component: StudentAppointmentSelectView,
+      meta: { allowedRoles: ['student'] },
+    },
 
-    { path: '/coordinator/forward-case', component: CoordinatorForwardCaseView, meta: { allowedRoles: ['coordinator'] } },
+    {
+      path: '/coordinator/forward-case',
+      component: CoordinatorForwardCaseView,
+      meta: { allowedRoles: ['coordinator'] },
+    },
 
-    { path: '/consultant/import', component: ConsultantImportView, meta: { allowedRoles: ['consultant'] } },
-    { path: '/consultant/change-mentors', component: ConsultantChangeMentorsView, meta: { allowedRoles: ['consultant'] } },
-    { path: '/consultant/update-group', component: ConsultantUpdateGroupView, meta: { allowedRoles: ['consultant'] } },
-    { path: '/consultant/designate-coordinators', component: ConsultantDesignateCoordinatorsView, meta: { allowedRoles: ['consultant'] } },
-    { path: '/consultant/export-records', component: ConsultantExportRecordsView, meta: { allowedRoles: ['consultant'] } },
-    { path: '/consultant/groups', component: ConsultantGroupListView, meta: { allowedRoles: ['consultant'] } },
-    { path: '/consultant/groups/:groupId', component: ConsultantGroupDetailView, meta: { allowedRoles: ['consultant'] } },
-    { path: '/consultant/departments', component: ConsultantDepartmentListView, meta: { allowedRoles: ['consultant'] } },
-    { path: '/consultant/departments/:deptId', component: ConsultantDepartmentDetailView, meta: { allowedRoles: ['consultant'] } },
+    {
+      path: '/consultant/import',
+      component: ConsultantImportView,
+      meta: { allowedRoles: ['consultant'] },
+    },
+    {
+      path: '/consultant/change-mentors',
+      component: ConsultantChangeMentorsView,
+      meta: { allowedRoles: ['consultant'] },
+    },
+    {
+      path: '/consultant/update-group',
+      component: ConsultantUpdateGroupView,
+      meta: { allowedRoles: ['consultant'] },
+    },
+    {
+      path: '/consultant/designate-coordinators',
+      component: ConsultantDesignateCoordinatorsView,
+      meta: { allowedRoles: ['consultant'] },
+    },
+    {
+      path: '/consultant/export-records',
+      component: ConsultantExportRecordsView,
+      meta: { allowedRoles: ['consultant'] },
+    },
+    {
+      path: '/consultant/groups',
+      component: ConsultantGroupListView,
+      meta: { allowedRoles: ['consultant'] },
+    },
+    {
+      path: '/consultant/groups/:groupId',
+      component: ConsultantGroupDetailView,
+      meta: { allowedRoles: ['consultant'] },
+    },
+    {
+      path: '/consultant/departments',
+      component: ConsultantDepartmentListView,
+      meta: { allowedRoles: ['consultant'] },
+    },
+    {
+      path: '/consultant/departments/:deptId',
+      component: ConsultantDepartmentDetailView,
+      meta: { allowedRoles: ['consultant'] },
+    },
 
-    { path: '/admin/consultants', component: AdminConsultantManagementView, meta: { allowedRoles: ['admin'] } },
-    { path: '/admin/consultants/add', component: AdminAddConsultantView, meta: { allowedRoles: ['admin'] } },
-    { path: '/admin/consultants/edit/:consultantId', component: AdminAddConsultantView, meta: { allowedRoles: ['admin'] } },
-    { path: '/admin/organization', component: AdminOrgManagementView, meta: { allowedRoles: ['admin'] } },
-    { path: '/admin/organization/manual', component: AdminOrgManualSetupView, meta: { allowedRoles: ['admin'] } },
-    { path: '/admin/organization/excel', component: AdminOrgExcelSetupView, meta: { allowedRoles: ['admin'] } },
-    { path: '/admin/supporting-staff', component: AdminSupportingStaffManagementView, meta: { allowedRoles: ['admin'] } },
-    { path: '/admin/supporting-staff/add', component: AdminAddSupportingStaffView, meta: { allowedRoles: ['admin'] } },
-    { path: '/admin/supporting-staff/edit/:staffId', component: AdminAddSupportingStaffView, meta: { allowedRoles: ['admin'] } },
+    {
+      path: '/admin/consultants',
+      component: AdminConsultantManagementView,
+      meta: { allowedRoles: ['admin'] },
+    },
+    {
+      path: '/admin/consultants/add',
+      component: AdminAddConsultantView,
+      meta: { allowedRoles: ['admin'] },
+    },
+    {
+      path: '/admin/consultants/edit/:consultantId',
+      component: AdminAddConsultantView,
+      meta: { allowedRoles: ['admin'] },
+    },
+    {
+      path: '/admin/organization',
+      component: AdminOrgManagementView,
+      meta: { allowedRoles: ['admin'] },
+    },
+    {
+      path: '/admin/organization/manual',
+      component: AdminOrgManualSetupView,
+      meta: { allowedRoles: ['admin'] },
+    },
+    {
+      path: '/admin/organization/excel',
+      component: AdminOrgExcelSetupView,
+      meta: { allowedRoles: ['admin'] },
+    },
+    {
+      path: '/admin/supporting-staff',
+      component: AdminSupportingStaffManagementView,
+      meta: { allowedRoles: ['admin'] },
+    },
+    {
+      path: '/admin/supporting-staff/add',
+      component: AdminAddSupportingStaffView,
+      meta: { allowedRoles: ['admin'] },
+    },
+    {
+      path: '/admin/supporting-staff/edit/:staffId',
+      component: AdminAddSupportingStaffView,
+      meta: { allowedRoles: ['admin'] },
+    },
 
-    { path: '/support/search-log', component: SupportSearchLogView, meta: { allowedRoles: ['support'] } },
-    { path: '/support/log/:userId', component: SupportLogInfoView, meta: { allowedRoles: ['support'] } },
-    { path: '/support/reply-feedback', component: SupportReplyFeedbackView, meta: { allowedRoles: ['support'] } },
+    {
+      path: '/support/search-log',
+      component: SupportSearchLogView,
+      meta: { allowedRoles: ['support'] },
+    },
+    {
+      path: '/support/log/:userId',
+      component: SupportLogInfoView,
+      meta: { allowedRoles: ['support'] },
+    },
+    {
+      path: '/support/reply-feedback',
+      component: SupportReplyFeedbackView,
+      meta: { allowedRoles: ['support'] },
+    },
 
     { path: '/:pathMatch(.*)*', redirect: '/login' },
   ],
 })
 
-router.beforeEach((to, _from, next) => {
+router.beforeEach((to) => {
   const token = localStorage.getItem('token')
-  const role = localStorage.getItem('role') as Role | null
+  const role = getStoredRole()
 
   if (to.path !== '/login' && !token) {
-    next('/login')
-    return
+    return '/login'
   }
 
   if (to.path === '/login' && token) {
-    next('/main')
-    return
+    return '/main'
   }
 
   const allowedRoles = to.meta.allowedRoles as Role[] | undefined
-  if (allowedRoles && (!role || !allowedRoles.includes(role))) {
+
+  if (allowedRoles?.length && (!role || !allowedRoles.includes(role))) {
     console.warn('Authorization warning: You do not have permission to access this page.')
-    next('/main')
-    return
+    return '/main'
   }
 
-  next()
+  return true
 })
 
 router.onError((error) => {

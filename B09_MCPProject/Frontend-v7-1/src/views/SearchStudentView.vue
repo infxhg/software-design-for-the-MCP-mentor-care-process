@@ -20,7 +20,7 @@
       <!--
         修改点 (NEW)：进一步缩小检索范围 —— 按学年(Academic Year)与导师姓名(Mentor Name)。
         两者均为可选；留空则不过滤，保持原有行为。
-        对应接口 GET /api/mentoring/records/student/{id}?academicYear=&mentorKeyword=
+        Mentor records are loaded from /api/mentoring/records/mine and filtered locally by Student ID; FC/Coordinator can still use record filters when supported by the backend.
       -->
       <div class="filter-grid">
         <div class="filter-item">
@@ -73,7 +73,7 @@
 
         <tbody>
         <tr>
-          <td>{{ foundStudent.id }}</td>
+          <td>{{ foundStudent.studentId || foundStudent.id || studentId }}</td>
           <td>{{ foundStudent.username }}</td>
           <td>{{ foundStudent.realName || foundStudent.username }}</td>
           <td>{{ foundStudent.email || 'N/A' }}</td>

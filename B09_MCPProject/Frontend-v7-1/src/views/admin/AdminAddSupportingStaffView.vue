@@ -12,7 +12,13 @@
 
       <label>
         Password
-        <input v-model.trim="form.password" :placeholder="isEdit ? 'Leave blank to keep unchanged' : ''" :required="!isEdit" type="password" :disabled="saving" />
+        <input
+          v-model.trim="form.password"
+          :placeholder="isEdit ? 'Leave blank to keep unchanged' : 'At least 6 characters'"
+          :required="!isEdit"
+          type="password"
+          :disabled="saving"
+        />
       </label>
 
       <label>
@@ -39,7 +45,7 @@
       </label>
 
       <div class="actions">
-        <button type="button" @click="router.back()">Back</button>
+        <button type="button" :disabled="saving" @click="router.back()">Back</button>
         <button class="primary" type="submit" :disabled="saving">
           {{ saving ? 'Saving...' : 'Save' }}
         </button>
@@ -60,7 +66,7 @@ import {
 const route = useRoute()
 const router = useRouter()
 
-const staffId = computed(() => String(route.params.staffId || route.params.id || ''))
+const staffId = computed(() => String(route.params.staffId || route.params.id || '').trim())
 const isEdit = computed(() => Boolean(staffId.value))
 const saving = ref(false)
 const error = ref('')
@@ -74,34 +80,53 @@ const form = reactive({
   status: 1,
 })
 
+function validate(): string {
+  if (!form.username.trim()) return 'Username is required.'
+  if (!form.realName.trim()) return 'Real name is required.'
+  if (!form.email.trim()) return 'Email is required.'
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) return 'Please enter a valid email address.'
+  if (!isEdit.value && form.password.trim().length < 6) return 'Password must be at least 6 characters.'
+  if (isEdit.value && form.password.trim() && form.password.trim().length < 6) {
+    return 'New password must be at least 6 characters.'
+  }
+  return ''
+}
+
 async function load() {
   if (!isEdit.value) return
+
   try {
     const data = await getSupportingStaffById(staffId.value)
     form.username = data.username || ''
-    form.realName = data.realName || ''
+    form.realName = data.realName || data.name || ''
     form.email = data.email || ''
     form.phone = data.phone || ''
-    form.status = data.status ?? 1
+    form.status = Number(data.status ?? 1)
   } catch (e: any) {
     error.value = e.message || 'Failed to load supporting staff.'
   }
 }
 
 async function submit() {
+  const validation = validate()
+  if (validation) {
+    error.value = validation
+    return
+  }
+
   saving.value = true
   error.value = ''
 
   try {
     const payload: any = {
-      username: form.username,
-      email: form.email,
-      realName: form.realName,
-      phone: form.phone,
-      status: form.status,
+      username: form.username.trim(),
+      email: form.email.trim(),
+      realName: form.realName.trim(),
+      phone: form.phone.trim(),
+      status: Number(form.status),
     }
 
-    if (form.password) payload.password = form.password
+    if (form.password.trim()) payload.password = form.password.trim()
 
     if (isEdit.value) {
       await updateSupportingStaff(staffId.value, payload)
@@ -127,6 +152,7 @@ label { display: grid; gap: 6px; font-weight: 600; }
 input, select { padding: 9px 10px; border: 1px solid #cbd5e1; border-radius: 8px; }
 .actions { display: flex; justify-content: flex-end; gap: 10px; }
 button { padding: 8px 14px; border: 1px solid #bbb; border-radius: 8px; background: #fff; cursor: pointer; }
+button:disabled { opacity: 0.55; cursor: not-allowed; }
 .primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
 .error { color: #b42318; }
 </style>

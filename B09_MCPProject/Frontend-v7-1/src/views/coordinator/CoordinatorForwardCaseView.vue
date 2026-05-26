@@ -68,7 +68,7 @@
           <dl class="case-info">
             <div>
               <dt>Submitter</dt>
-              <dd>{{ item.submitterId || item.creatorId || '-' }}</dd>
+              <dd>{{ item.submitterId || '-' }}</dd>
             </div>
 
             <div>
@@ -141,32 +141,25 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { del, get, put, unwrap } from '../../api/request'
-import { listConsultants, type AdminAccount } from '../../api/admin'
+import {
+  forwardCaseToConsultant,
+  listCoordinatorCases,
+  rejectCase as rejectCaseApi,
+  type CaseItem,
+} from '../../api/mentoring'
+import { searchMyScope } from '../../api/org'
 
-type AnyRecord = Record<string, any>
 type NormalizedCaseStatus = 'WAITING' | 'FORWARDED' | 'CLOSED' | 'REJECTED' | 'UNKNOWN'
 
-interface LocalCaseItem {
-  id?: string | number
-  caseId?: string | number
-  specialCaseId?: string | number
-  studentId?: string
-  description?: string
-  status?: string
-  submitterId?: string
-  creatorId?: string
-  coordinatorId?: string
-  targetCoordinatorId?: string
-  consultantId?: string
-  targetConsultantId?: string
-  createTime?: string
-  createdAt?: string
-  [key: string]: any
+interface ConsultantOption {
+  id: string
+  realName?: string | null
+  username?: string
+  email?: string | null
 }
 
-const cases = ref<LocalCaseItem[]>([])
-const consultants = ref<AdminAccount[]>([])
+const cases = ref<CaseItem[]>([])
+const consultants = ref<ConsultantOption[]>([])
 const selectedConsultants = ref<Record<string, string>>({})
 const manualConsultants = ref<Record<string, string>>({})
 
@@ -230,57 +223,24 @@ async function loadPageData(): Promise<void> {
   }
 }
 
-async function listCoordinatorCases(): Promise<LocalCaseItem[]> {
-  const res = await get<unknown>('/api/mentoring/cases/coordinator')
-  const data = unwrap(res)
-
-  return asArray(data).map((item) => normalizeCase(item))
-}
-
-async function loadConsultantsSafely(): Promise<AdminAccount[]> {
+async function loadConsultantsSafely(): Promise<ConsultantOption[]> {
   try {
-    return await listConsultants()
+    const scope = await searchMyScope()
+    return scope.facultyConsultants
+      .map((fc) => ({
+        id: String(fc.consultantId || fc.id || ''),
+        realName: fc.consultantName || fc.realName || fc.name,
+        username: fc.username,
+        email: fc.email,
+      }))
+      .filter((item) => item.id)
   } catch {
     return []
   }
 }
 
-function normalizeCase(raw: AnyRecord): LocalCaseItem {
-  return {
-    ...raw,
-    id: raw.id ?? raw.caseId ?? raw.specialCaseId,
-    caseId: raw.caseId ?? raw.id ?? raw.specialCaseId,
-    studentId: raw.studentId ?? raw.student?.studentId ?? raw.student?.id,
-    description: raw.description ?? raw.reason ?? raw.content ?? '',
-    status: raw.status ?? raw.caseStatus,
-    submitterId: raw.submitterId ?? raw.creatorId ?? raw.mentorId,
-    creatorId: raw.creatorId ?? raw.submitterId ?? raw.mentorId,
-    coordinatorId: raw.coordinatorId ?? raw.targetCoordinatorId,
-    targetCoordinatorId: raw.targetCoordinatorId ?? raw.coordinatorId,
-    consultantId: raw.consultantId ?? raw.targetConsultantId,
-    targetConsultantId: raw.targetConsultantId ?? raw.consultantId,
-    createTime: raw.createTime ?? raw.createdAt,
-    createdAt: raw.createdAt ?? raw.createTime,
-  }
-}
-
-function asArray(value: unknown): AnyRecord[] {
-  if (Array.isArray(value)) return value as AnyRecord[]
-
-  const obj = value as AnyRecord | null | undefined
-  if (!obj || typeof obj !== 'object') return []
-
-  if (Array.isArray(obj.records)) return obj.records
-  if (Array.isArray(obj.list)) return obj.list
-  if (Array.isArray(obj.content)) return obj.content
-  if (Array.isArray(obj.items)) return obj.items
-  if (Array.isArray(obj.data)) return obj.data
-
-  return []
-}
-
-function getCaseId(item: LocalCaseItem): string {
-  return String(item.caseId || item.id || item.specialCaseId || '')
+function getCaseId(item: CaseItem): string {
+  return String(item.caseId || item.id || '')
 }
 
 function normalizeCaseStatus(status: unknown): NormalizedCaseStatus {
@@ -323,11 +283,11 @@ function statusClass(status: unknown): string {
   return `status-${normalizeCaseStatus(status).toLowerCase()}`
 }
 
-function canForward(item: LocalCaseItem): boolean {
+function canForward(item: CaseItem): boolean {
   return Boolean(getCaseId(item)) && normalizeCaseStatus(item.status) === 'WAITING'
 }
 
-function getConsultantName(consultant: AdminAccount): string {
+function getConsultantName(consultant: ConsultantOption): string {
   const name = consultant.realName || consultant.username || consultant.email || consultant.id
 
   if (consultant.email) {
@@ -375,45 +335,7 @@ function buildCaseErrorMessage(error: any): string {
   return `Failed to load coordinator cases: ${message}`
 }
 
-async function forwardCase(caseId: string, targetConsultantId: string): Promise<void> {
-  const res = await put<unknown>(
-    `/api/mentoring/cases/${encodeURIComponent(caseId)}/forward`,
-    {
-      targetConsultantId,
-    },
-  )
-
-  unwrap(res)
-}
-
-async function rejectCase(caseId: string): Promise<void> {
-  const endpoints = [
-    `/api/mentoring/cases/${encodeURIComponent(caseId)}/reject`,
-    `/api/mentoring/cases/${encodeURIComponent(caseId)}`,
-  ]
-
-  let lastError: unknown = null
-
-  for (const endpoint of endpoints) {
-    try {
-      if (endpoint.endsWith('/reject')) {
-        const res = await put<unknown>(endpoint, {})
-        unwrap(res)
-      } else {
-        const res = await del<unknown>(endpoint)
-        unwrap(res)
-      }
-
-      return
-    } catch (error) {
-      lastError = error
-    }
-  }
-
-  throw lastError instanceof Error ? lastError : new Error('Failed to reject case.')
-}
-
-async function handleForward(item: LocalCaseItem): Promise<void> {
+async function handleForward(item: CaseItem): Promise<void> {
   const caseId = getCaseId(item)
   const targetConsultantId = getSelectedConsultantId(caseId)
 
@@ -435,7 +357,7 @@ async function handleForward(item: LocalCaseItem): Promise<void> {
   isSubmitting.value = true
 
   try {
-    await forwardCase(caseId, targetConsultantId)
+    await forwardCaseToConsultant({ caseId, targetConsultantId })
 
     selectedConsultants.value[caseId] = ''
     manualConsultants.value[caseId] = ''
@@ -452,7 +374,7 @@ async function handleForward(item: LocalCaseItem): Promise<void> {
   }
 }
 
-async function handleReject(item: LocalCaseItem): Promise<void> {
+async function handleReject(item: CaseItem): Promise<void> {
   const caseId = getCaseId(item)
 
   caseMessage.value = ''
@@ -467,7 +389,7 @@ async function handleReject(item: LocalCaseItem): Promise<void> {
   isSubmitting.value = true
 
   try {
-    await rejectCase(caseId)
+    await rejectCaseApi(caseId)
 
     await loadPageData()
 

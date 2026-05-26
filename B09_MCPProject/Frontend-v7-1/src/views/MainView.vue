@@ -78,7 +78,7 @@ const cards: DashboardCard[] = [
 
   // -------------------- Supporting Staff (1F) --------------------
   { title: 'View Log Info', description: 'Search and view user activity / interaction logs.', path: '/support/search-log', linkText: 'Open', roles: ['support'] },
-  { title: 'Reply Users\' Questions', description: 'Respond to feedback submitted by users.', path: '/support/reply-feedback', linkText: 'Open', roles: ['support'] },
+  { title: 'View Users\' Feedback', description: 'View feedback submitted by users (read-only).', path: '/support/reply-feedback', linkText: 'Open', roles: ['support'] },
 
   // -------------------- Shared --------------------
   { title: 'Give Feedback', description: 'Send feedback to the system administrator.', path: '/feedback', linkText: 'Open', roles: ['mentor', 'student', 'coordinator', 'consultant', 'admin'] },

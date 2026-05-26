@@ -12,8 +12,10 @@ import {
 import {
   getOrgTree,
   getMentorsByOrgUnit,
+  getMyDeptMember,
   isOrgType,
   lookupStudent as lookupOrgStudent,
+  normalizeStudent as normalizeOrgStudent,
   type MentorInfo,
   type StudentInfo,
 } from './org'
@@ -36,6 +38,39 @@ export interface InterviewRecord {
 }
 
 export type McpRecord = InterviewRecord
+
+export const STRICT_STUDENT_ID_PATTERN = /^\d{9}$/
+
+export function isStrictStudentId(value: unknown): boolean {
+  return STRICT_STUDENT_ID_PATTERN.test(String(value || '').trim())
+}
+
+export function getStrictStudentIdValidationMessage(value: unknown): string {
+  const id = String(value || '').trim()
+  if (!id) return 'Student ID cannot be empty.'
+  if (!isStrictStudentId(id)) return 'Invalid Student ID format. Student ID must be exactly 9 digits.'
+  return ''
+}
+
+function getStoredFrontendRole(): string {
+  try {
+    return String(localStorage.getItem('role') || '').trim().toLowerCase()
+  } catch {
+    return ''
+  }
+}
+
+function normalizeStudentPayload(raw: any, fallbackId = ''): StudentInfo | null {
+  if (!raw) return null
+
+  const data = raw?.student ?? raw?.user ?? raw?.member ?? raw
+  if (Array.isArray(data)) {
+    const first = data[0]
+    return first ? normalizeOrgStudent(first, fallbackId) : null
+  }
+
+  return normalizeOrgStudent(data, fallbackId)
+}
 
 export interface GroupInfo {
   groupId: string
@@ -251,15 +286,41 @@ export async function fetchRecordsForStudent(
   studentId: string,
   filter?: StudentRecordFilter,
 ): Promise<InterviewRecord[]> {
+  const id = String(studentId || '').trim()
+  const validation = getStrictStudentIdValidationMessage(id)
+  if (validation) throw new Error(validation)
+
+  const role = getStoredFrontendRole()
+
+  // Updated API note:
+  // The latest OpenAPI keeps GET /api/mentoring/records/mine as the stable Mentor endpoint.
+  // The old concrete-looking /api/mentoring/records/student/stu-12345 entry is not a real
+  // path parameter for Mentor testing, so mentor pages should load current mentor records
+  // and filter them locally by strict 9-digit Student ID.
+  if (role === 'mentor') {
+    const rows = await getMyInterviewRecords()
+    return rows.filter((record) => String(record.studentId || '').trim() === id)
+  }
+
   const params: QueryParams = {}
   if (filter?.academicYear) params.academicYear = filter.academicYear
   if (filter?.mentorKeyword) params.mentorKeyword = filter.mentorKeyword
 
-  const res = await get<any[]>(
-    `/api/mentoring/records/student/${encodeURIComponent(studentId)}`,
-    Object.keys(params).length ? params : undefined,
-  )
-  return (unwrap(res) || []).map(normalizeRecord)
+  try {
+    // Faculty Consultant / Coordinator record browsing endpoint in the updated OpenAPI.
+    const res = await get<any[]>(
+      `/records/student/${encodeURIComponent(id)}`,
+      Object.keys(params).length ? params : undefined,
+    )
+    return (unwrap(res) || []).map(normalizeRecord)
+  } catch {
+    // Backward compatibility for older backend builds.
+    const res = await get<any[]>(
+      `/api/mentoring/records/student/${encodeURIComponent(id)}`,
+      Object.keys(params).length ? params : undefined,
+    )
+    return (unwrap(res) || []).map(normalizeRecord)
+  }
 }
 
 export const getRecordsByStudent = fetchRecordsForStudent
@@ -271,8 +332,17 @@ export async function getRecordDetail(recordId: string): Promise<InterviewRecord
   return normalizeRecord(unwrap(res))
 }
 
-export async function getRecordsByGroup(groupId: string): Promise<StudentGroupRecord[]> {
-  const res = await get<any[]>(`/api/mentoring/records/group/${encodeURIComponent(groupId)}`)
+export async function getRecordsByGroup(
+  groupId: string,
+  majorId?: string,
+): Promise<StudentGroupRecord[]> {
+  const params: QueryParams = {}
+  if (majorId) params.majorId = majorId
+
+  const res = await get<any[]>(
+    `/api/mentoring/records/group/${encodeURIComponent(groupId)}`,
+    Object.keys(params).length ? params : undefined,
+  )
   return (unwrap(res) || []).map(normalizeStudentGroupRecord)
 }
 
@@ -284,9 +354,13 @@ export async function getMyInterviewRecords(): Promise<InterviewRecord[]> {
 export const getMyRecords = getMyInterviewRecords
 
 export async function saveInterviewRecord(payload: InterviewRecord): Promise<any> {
+  // Updated API note:
+  // POST /api/mentoring/records is now documented as CREATE only. Do not send recordId/id
+  // in the body, otherwise the backend may reject it or create ambiguous data.
+  const { recordId: _recordId, id: _id, followUpAction, ...rest } = payload
   const normalized = {
-    ...payload,
-    followupAction: payload.followupAction ?? payload.followUpAction,
+    ...rest,
+    followupAction: payload.followupAction ?? followUpAction,
   }
   const res = await post<any>('/api/mentoring/records', normalized)
   return unwrap(res)
@@ -295,13 +369,27 @@ export async function saveInterviewRecord(payload: InterviewRecord): Promise<any
 export const saveRecord = saveInterviewRecord
 
 export async function createRecord(payload: InterviewRecord): Promise<any> {
-  const { recordId, id, ...rest } = payload
-  return saveInterviewRecord(rest as InterviewRecord)
+  return saveInterviewRecord(payload)
 }
 
 export async function updateRecord(payload: InterviewRecord): Promise<any> {
-  if (!payload.recordId && !payload.id) throw new Error('recordId is required')
-  return saveInterviewRecord(payload)
+  const recordId = String(payload.recordId || payload.id || '').trim()
+  if (!recordId) throw new Error('recordId is required')
+
+  // The updated OpenAPI no longer exposes a true UPDATE endpoint for interview records.
+  // To keep the existing UI workflow usable, simulate replacement as:
+  //   1) create the new version without recordId
+  //   2) delete the old record
+  // This avoids sending an unsupported update payload to POST /api/mentoring/records.
+  const created = await createRecord(payload)
+
+  try {
+    await deleteRecord(recordId)
+  } catch (error) {
+    console.warn('[mentoring] record was re-created but old record could not be deleted:', error)
+  }
+
+  return created
 }
 
 export async function deleteRecord(recordId: string): Promise<void> {
@@ -312,15 +400,55 @@ export async function deleteRecord(recordId: string): Promise<void> {
 export const deleteInterviewRecord = deleteRecord
 
 export async function searchStudentInMyGroups(studentId: string): Promise<StudentInfo | null> {
-  const res = await get<any>('/api/mentoring/records/students/search', { studentId })
-  return unwrap(res) || null
+  const id = String(studentId || '').trim()
+  const validation = getStrictStudentIdValidationMessage(id)
+  if (validation) throw new Error(validation)
+
+  const res = await get<any>('/api/mentoring/records/students/search', { studentId: id })
+  return normalizeStudentPayload(unwrap(res), id)
 }
 
 export async function lookupStudent(studentId: string): Promise<StudentInfo | null> {
+  const id = String(studentId || '').trim()
+  const validation = getStrictStudentIdValidationMessage(id)
+  if (validation) throw new Error(validation)
+
+  const role = getStoredFrontendRole()
+
+  if (role === 'mentor') {
+    // Mentor searches must stay scoped to the mentor's own groups.
+    // Try the new mentoring-scoped endpoint first; if that backend build does not support it,
+    // fall back to /api/org/student/{studentId}, which the updated OpenAPI also marks as
+    // "Mentor searches own-group student".
+    try {
+      return await searchStudentInMyGroups(id)
+    } catch {
+      const student = await lookupOrgStudent(id)
+      return normalizeStudentPayload(student, id)
+    }
+  }
+
+  if (role === 'coordinator') {
+    // Coordinator: scoped to own department via GET /api/org/my-dept/member/{userId}.
+    try {
+      const member = await getMyDeptMember(id)
+      return normalizeStudentPayload(member, id)
+    } catch {
+      try {
+        const student = await lookupOrgStudent(id)
+        return normalizeStudentPayload(student, id)
+      } catch {
+        return searchStudentInMyGroups(id)
+      }
+    }
+  }
+
   try {
-    return await searchStudentInMyGroups(studentId)
+    const student = await lookupOrgStudent(id)
+    return normalizeStudentPayload(student, id)
   } catch {
-    return await lookupOrgStudent(studentId)
+    // For non-mentor pages, keep the old compatibility fallback when org lookup is unavailable.
+    return searchStudentInMyGroups(id)
   }
 }
 
