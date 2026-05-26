@@ -347,9 +347,40 @@ export async function searchGroup(
   }
 
   if (data?.group || data?.members) {
+    const members = Array.isArray(data?.members)
+      ? data.members.map(normalizeMember)
+      : []
+
+    /**
+     * 修改点 (FIX)：
+     * 后端 /api/mentoring/groups/search?groupId=xxx 在某些情况下不会返回
+     * 嵌套的 data.group，而是把 members 和 group 级字段（groupId / mentorId /
+     * facultyOrgId / parentId / mentorName 等）一起平铺在 data 顶层；
+     * 此前 searchGroup 只识别 data.group，导致 findMentorByGroupId 拿不到
+     * group 对象，SearchMentorView 直接走 "No matching mentor information
+     * is found." 分支。
+     *
+     * 这里改成：若没有显式的 data.group，就把 data 顶层（剔除 members）
+     * 当成 group raw，再用 members[0].groupId 或调用方传入的 groupId 兜底
+     * 推导 groupId，让上层 findMentorByGroupId 仍能拿到 groupId /
+     * mentorId / facultyOrgId 去解析导师。
+     */
+    let group: GroupInfo | undefined
+    if (data?.group) {
+      group = normalizeGroup(data.group)
+    } else {
+      const { members: _omitMembers, ...rest } = data
+      const inferredGroupId =
+        rest?.groupId ?? rest?.id ?? rest?.unitId ?? members[0]?.groupId ?? groupId ?? ''
+
+      if (inferredGroupId || rest?.mentorId || Object.keys(rest).length > 0) {
+        group = normalizeGroup({ ...rest, groupId: inferredGroupId })
+      }
+    }
+
     return {
-      group: data?.group ? normalizeGroup(data.group) : undefined,
-      members: Array.isArray(data?.members) ? data.members.map(normalizeMember) : [],
+      group,
+      members,
       raw: data,
     }
   }
