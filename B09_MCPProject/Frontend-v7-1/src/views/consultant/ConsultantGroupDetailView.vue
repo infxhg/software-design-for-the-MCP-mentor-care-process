@@ -10,14 +10,18 @@
       <p><strong>Faculty Org ID:</strong> {{ group.facultyOrgId || '-' }}</p>
       <p><strong>Mentor ID:</strong> {{ group.mentorId || '-' }}</p>
 
-      <div class="inline">
-        <input v-model.trim="newMentorId" placeholder="New mentor ID" />
-        <button @click="changeMentor">Change Mentor</button>
+      <div class="add-row">
+        <input v-model.trim="newMentorId" class="add-input" placeholder="New mentor ID" />
+        <button class="btn btn-primary" @click="changeMentor">Change Mentor</button>
       </div>
 
-      <div class="inline">
-        <input v-model.trim="newStudentId" placeholder="Student ID" />
-        <button @click="addStudent">Add Student</button>
+      <div class="add-row">
+        <input
+          v-model.trim="newStudentId"
+          class="add-input"
+          placeholder="Student ID to add (9 digits)"
+        />
+        <button class="btn btn-success" @click="addStudent">Add Student</button>
       </div>
     </div>
 
@@ -39,7 +43,7 @@
             <td>{{ m.majorId || '-' }}</td>
             <td>{{ m.status || '-' }}</td>
             <td>{{ m.updateTime || '-' }}</td>
-            <td><button class="danger" @click="removeStudent(m.studentId)">Remove</button></td>
+            <td><button class="btn btn-danger" @click="removeStudent(m.studentId)">Remove</button></td>
           </tr>
           <tr v-if="members.length === 0">
             <td colspan="5" class="empty">No members.</td>
@@ -119,10 +123,12 @@ onMounted(load)
 <style scoped>
 .page { max-width: 1000px; margin: 0 auto; padding: 24px; }
 .card { margin-top: 16px; padding: 18px; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; }
-.inline { display: flex; gap: 10px; align-items: center; margin: 12px 0; }
-input { padding: 9px 10px; border: 1px solid #cbd5e1; border-radius: 8px; }
-button { padding: 8px 14px; border: 1px solid #bbb; border-radius: 8px; background: #fff; cursor: pointer; }
-.danger { color: #b42318; border-color: #f3b8b2; }
+.add-row { display: flex; gap: 10px; align-items: center; margin: 12px 0; flex-wrap: wrap; }
+.add-input { flex: 1; min-width: 220px; padding: 9px 10px; border: 1px solid #cbd5e1; border-radius: 8px; }
+.btn { padding: 8px 14px; border-radius: 8px; font-weight: 600; cursor: pointer; border: 1px solid transparent; }
+.btn-primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+.btn-success { background: #16a34a; color: #fff; border-color: #16a34a; }
+.btn-danger { background: #fff; color: #b42318; border-color: #f3b8b2; }
 .table { width: 100%; border-collapse: collapse; }
 th, td { border: 1px solid #e5e7eb; padding: 9px; text-align: left; }
 th { background: #f8fafc; }

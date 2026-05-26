@@ -60,8 +60,8 @@ function normalizeRole(value: unknown): Role | null {
   if (role === 'mentor') return 'mentor'
   if (role === 'coordinator') return 'coordinator'
   if (role === 'consultant') return 'consultant'
-  if (role === 'admin') return 'admin'
-  if (role === 'support') return 'support'
+  if (role === 'admin' || role === 'administrator' || role === 'role_admin') return 'admin'
+  if (role === 'support' || role === 'supporting_staff' || role === 'support_staff') return 'support'
 
   return null
 }
@@ -231,6 +231,16 @@ const router = createRouter({
       path: '/consultant/departments/:deptId',
       component: ConsultantDepartmentDetailView,
       meta: { allowedRoles: ['consultant'] },
+    },
+    {
+      path: '/consultant/search-log',
+      component: SupportSearchLogView,
+      meta: { allowedRoles: ['consultant'], logScope: 'faculty' },
+    },
+    {
+      path: '/consultant/log/:userId',
+      component: SupportLogInfoView,
+      meta: { allowedRoles: ['consultant'], logScope: 'faculty' },
     },
 
     {

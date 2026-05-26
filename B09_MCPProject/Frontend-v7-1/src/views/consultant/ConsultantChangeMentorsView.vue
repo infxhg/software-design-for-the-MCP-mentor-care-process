@@ -4,12 +4,24 @@
     <p class="desc">Search a group, then assign a new mentor.</p>
 
     <section class="card">
-      <label>Group ID</label>
-      <input
-        v-model.trim="groupId"
-        placeholder="Enter group ID"
-        @keyup.enter="handleSearchGroup"
-      />
+      <div class="field-row">
+        <label class="field">
+          Group ID
+          <input
+            v-model.trim="groupId"
+            placeholder="e.g. 2024-2025-Y1"
+            @keyup.enter="handleSearchGroup"
+          />
+        </label>
+        <label class="field">
+          Major ID <span class="hint">(optional, for disambiguation)</span>
+          <input
+            v-model.trim="majorId"
+            placeholder="e.g. CST / AI"
+            @keyup.enter="handleSearchGroup"
+          />
+        </label>
+      </div>
       <button :disabled="loadingGroup || !groupId" @click="handleSearchGroup">
         {{ loadingGroup ? 'Searching...' : 'Search Group' }}
       </button>
@@ -91,6 +103,7 @@ import {
 } from '../../api/org'
 
 const groupId = ref('')
+const majorId = ref('')
 const group = ref<GroupInfo | null>(null)
 
 const mentorKeyword = ref('')
@@ -136,11 +149,11 @@ async function handleSearchGroup() {
   mentorKeyword.value = ''
 
   try {
-    const result: any = await searchGroup(groupId.value)
+    const result: any = await searchGroup(groupId.value, majorId.value || undefined)
     const foundGroup = result?.group || result
 
     if (!foundGroup || !(foundGroup.groupId || foundGroup.id)) {
-      showError('Group not found.')
+      showError('Group not found. Try adding Major ID if multiple groups share the same Group ID.')
       return
     }
 
@@ -208,7 +221,11 @@ async function handleSaveChange() {
 
   try {
     const realGroupId = String((group.value as any).groupId || (group.value as any).id)
-    const updated: any = await changeGroupMentor(realGroupId, newMentorId.value)
+    const updated: any = await changeGroupMentor(
+        realGroupId,
+        newMentorId.value,
+        majorId.value || undefined,
+    )
 
     group.value = {
       ...group.value,
@@ -363,7 +380,28 @@ button:disabled {
   color: #dc2626;
 }
 
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.field {
+  display: block;
+}
+
+.hint {
+  font-weight: 400;
+  color: #6b7280;
+  font-size: 12px;
+}
+
 @media (max-width: 720px) {
+  .field-row {
+    grid-template-columns: 1fr;
+  }
+
   .search-row {
     grid-template-columns: 1fr;
   }

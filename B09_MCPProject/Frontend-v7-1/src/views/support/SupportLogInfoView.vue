@@ -66,12 +66,21 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { searchLogs, type OperationLog } from '../../api/support'
+import {
+  searchFacultyStudentLogs,
+  searchLogs,
+  type OperationLog,
+} from '../../api/support'
 
 type AnyRecord = Record<string, any>
 
 const route = useRoute()
 const router = useRouter()
+
+const logScope = computed(() => (route.meta.logScope === 'faculty' ? 'faculty' : 'support'))
+const logBasePath = computed(() =>
+    logScope.value === 'faculty' ? '/consultant' : '/support',
+)
 
 const logs = ref<OperationLog[]>([])
 const isLoading = ref(false)
@@ -114,9 +123,10 @@ async function loadLogs(): Promise<void> {
 
   try {
     // 修复点: 只传 query 单一字段给底层的 support API，防止发送多个字段导致后端走强制 AND 判断
-    const list = await searchLogs({
-      query: key
-    })
+    const list =
+        logScope.value === 'faculty'
+            ? await searchFacultyStudentLogs(key)
+            : await searchLogs({ query: key })
 
     logs.value = list
 
@@ -189,7 +199,7 @@ function formatTime(value: string): string {
 }
 
 function goSearch(): void {
-  router.push('/support/search-log')
+  router.push(`${logBasePath.value}/search-log`)
 }
 </script>
 

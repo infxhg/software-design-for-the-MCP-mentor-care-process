@@ -5,13 +5,13 @@
         <h1>Confirm Interview Venue</h1>
         <p class="desc">Set or update the venue for booked interview slots.</p>
       </div>
-      <button class="secondary" @click="goBack">Back</button>
+      <button type="button" class="secondary" @click="goBack">Back</button>
     </div>
 
     <p v-if="error" class="message error">{{ error }}</p>
 
     <div class="toolbar">
-      <button class="secondary" :disabled="loading" @click="loadSlots">
+      <button type="button" class="secondary" :disabled="loading" @click="loadSlots">
         {{ loading ? 'Loading...' : 'Refresh' }}
       </button>
       <label class="checkbox">
@@ -43,6 +43,7 @@
           </td>
           <td>
             <button
+              type="button"
               class="primary"
               :disabled="savingId === slot.slotId || !venues[slot.slotId]"
               @click="saveVenue(slot.slotId)"
@@ -64,7 +65,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  getMentorAppointmentSlots,
+  listMyMentorAppointmentSlots,
   setAppointmentVenue,
   type AppointmentSlot,
 } from '../../api/mentoring'
@@ -85,33 +86,6 @@ const visibleSlots = computed(() => {
 
 onMounted(loadSlots)
 
-function getStoredUserInfo(): any {
-  try {
-    return JSON.parse(localStorage.getItem('userInfo') || '{}')
-  } catch {
-    return {}
-  }
-}
-
-function getMentorIdCandidates(): string[] {
-  const info = getStoredUserInfo()
-  const user = info.user || {}
-  const raw = [
-    info.mentorId,
-    user.mentorId,
-    info.userId,
-    user.userId,
-    info.id,
-    user.id,
-    info.username,
-    user.username,
-    localStorage.getItem('userId'),
-    localStorage.getItem('username'),
-  ]
-
-  return Array.from(new Set(raw.map((item) => String(item || '').trim()).filter(Boolean)))
-}
-
 function isBooked(slot: AppointmentSlot): boolean {
   const status = String(slot.status || '').toUpperCase()
   return Boolean(slot.studentId) || ['BOOKED', 'CONFIRMED', 'RESERVED', 'OCCUPIED'].includes(status)
@@ -121,39 +95,16 @@ async function loadSlots() {
   error.value = ''
   loading.value = true
 
-  const candidates = getMentorIdCandidates()
-  if (candidates.length === 0) {
-    error.value = 'Cannot find current mentor ID or username from localStorage.'
+  try {
+    slots.value = dedupeSlots(await listMyMentorAppointmentSlots())
+    slots.value.forEach((slot) => {
+      venues[slot.slotId] = slot.venue || venues[slot.slotId] || ''
+    })
+  } catch (err: any) {
+    error.value = toFriendlyError(err, 'Failed to load slots.')
+  } finally {
     loading.value = false
-    return
   }
-
-  let loaded: AppointmentSlot[] = []
-  let lastError = ''
-  let hadSuccessfulEmptyResponse = false
-
-  for (const candidate of candidates) {
-    try {
-      const rows = await getMentorAppointmentSlots(candidate)
-      if (rows.length > 0) {
-        loaded = rows
-        break
-      }
-      hadSuccessfulEmptyResponse = true
-    } catch (err: any) {
-      lastError = String(err?.message || err || '')
-    }
-  }
-
-  if (loaded.length === 0 && !hadSuccessfulEmptyResponse && lastError) {
-    error.value = toFriendlyError(lastError, 'Failed to load slots.')
-  }
-
-  slots.value = dedupeSlots(loaded)
-  slots.value.forEach((slot) => {
-    venues[slot.slotId] = slot.venue || venues[slot.slotId] || ''
-  })
-  loading.value = false
 }
 
 function dedupeSlots(rows: AppointmentSlot[]): AppointmentSlot[] {
@@ -235,27 +186,27 @@ input {
   border-radius: 8px;
 }
 
-button {
+.page-card button {
   padding: 8px 14px;
-  border: 1px solid #cbd5e1;
   border-radius: 8px;
-  background: #fff;
   cursor: pointer;
 }
 
-button:disabled {
+.page-card button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-.primary {
+.page-card button.primary {
   background: #2563eb;
-  border-color: #2563eb;
+  border: 1px solid #2563eb;
   color: #fff;
 }
 
-.secondary {
+.page-card button.secondary {
   background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  color: #1e293b;
 }
 
 table {

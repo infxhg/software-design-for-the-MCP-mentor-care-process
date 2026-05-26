@@ -93,6 +93,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getRecordsByStudent, lookupStudent } from '../api/mentoring'
+import { getRole } from '../types'
 import type { McpRecord } from '../api/mentoring'
 import type { StudentFromApi } from '../api/org'
 
@@ -120,6 +121,15 @@ const STUDENT_ID_PATTERN = /^\d{9}$/
 
 function validateStudentId(input: string): string {
   if (!input) return 'Student ID cannot be empty.'
+
+  const role = getRole()
+  if (role === 'coordinator' || role === 'consultant') {
+    if (!/^[A-Za-z0-9_-]+$/.test(input)) {
+      return 'Invalid student identifier format.'
+    }
+    return ''
+  }
+
   if (!STUDENT_ID_PATTERN.test(input)) {
     return 'Invalid Student ID format. Student ID should be 9 digits.'
   }

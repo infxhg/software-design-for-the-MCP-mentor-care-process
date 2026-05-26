@@ -222,7 +222,9 @@ export function mapBackendRole(roles?: unknown): FrontendRole {
       .map((r) => r.trim().toUpperCase())
       .filter(Boolean)
 
-  if (normalized.some((r) => r.includes('ADMIN'))) return 'admin'
+  if (normalized.some((r) => r.includes('ADMIN') || r === 'ADMINISTRATOR' || r === 'ROLE_ADMIN')) {
+    return 'admin'
+  }
   if (normalized.some((r) => r.includes('SUPPORT'))) return 'support'
   if (normalized.some((r) => r.includes('CONSULTANT') || r.includes('FACULTY'))) return 'consultant'
   if (normalized.some((r) => r.includes('COORDINATOR') || r.includes('MCP'))) return 'coordinator'

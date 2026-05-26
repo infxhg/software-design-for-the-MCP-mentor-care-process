@@ -110,8 +110,20 @@ async function importFile() {
   error.value = ''
   success.value = ''
   try {
-    await importCoordinatorList(file.value)
-    success.value = 'Coordinator list imported successfully.'
+    const res = await importCoordinatorList(file.value)
+    const data = (res as any)?.data ?? res ?? {}
+    const created = Number(data.created ?? data.createCount ?? 0)
+    const updated = Number(data.updated ?? data.updateCount ?? 0)
+    const failed = data.failed != null ? Number(data.failed) : undefined
+
+    if (created + updated === 0) {
+      error.value =
+          'Import finished but no coordinator records were created or updated. Check Excel format.'
+    } else {
+      success.value = `Coordinator list imported: ${created} created, ${updated} updated${
+          failed != null ? `, ${failed} failed` : ''
+      }.`
+    }
   } catch (e: any) {
     error.value = e.message || 'Import failed.'
   } finally {

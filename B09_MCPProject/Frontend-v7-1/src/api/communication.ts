@@ -1,4 +1,4 @@
-import { getMyDeptMember } from './org'
+import { getMyDeptMember, searchMyScope } from './org'
 import { getUserInfoByIdApi } from './user'
 import { get, post, unwrap } from './request'
 
@@ -788,15 +788,26 @@ async function getCoordinatorReceivers(keyword: string): Promise<AvailableReceiv
   return uniqueReceivers(result)
 }
 
+async function getFacultyScopeReceivers(keyword: string): Promise<AvailableReceiver[]> {
+  const scope = await searchMyScope(keyword.trim())
+
+  const receivers = uniqueReceivers([
+    ...scope.mentors.map((row) => normalizeReceiver(row as AnyRecord, 'mentor')),
+    ...scope.students.map((row) => normalizeReceiver(row as AnyRecord, 'student')),
+    ...(scope.raw?.coordinators || []).map((row: AnyRecord) => normalizeReceiver(row, 'coordinator')),
+  ])
+
+  return filterReceiversByKeyword(receivers, keyword)
+}
+
 async function getConsultantReceivers(keyword: string): Promise<AvailableReceiver[]> {
   const params = buildKeywordParams(keyword)
   const result: AvailableReceiver[] = []
 
   const tasks: Array<Promise<AvailableReceiver[]>> = [
+    getFacultyScopeReceivers(keyword),
     tryGetArray('/api/org/students/search', params, 'student'),
     tryGetArray('/api/org/mentors/search', params, 'mentor'),
-    tryGetArray('/api/user/coordinators', params, 'coordinator'),
-    tryGetArray('/api/org/coordinators', params, 'coordinator'),
     getHistoryReceivers(keyword),
   ]
 

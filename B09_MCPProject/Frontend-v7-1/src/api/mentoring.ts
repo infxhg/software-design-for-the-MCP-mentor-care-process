@@ -1,3 +1,4 @@
+import { getUserInfoApi } from './user'
 import {
   del,
   downloadBlob,
@@ -16,9 +17,14 @@ import {
   isOrgType,
   lookupStudent as lookupOrgStudent,
   normalizeStudent as normalizeOrgStudent,
+  searchMentors,
+  searchMyScope,
   type MentorInfo,
   type StudentInfo,
 } from './org'
+
+const MENTOR_SLOT_OWNER_KEY = 'mcs_mentor_slot_owner_id'
+const MENTOR_SLOTS_CACHE_PREFIX = 'mcs_mentor_slots_'
 
 export interface InterviewRecord {
   recordId?: string
@@ -50,6 +56,33 @@ export function getStrictStudentIdValidationMessage(value: unknown): string {
   if (!id) return 'Student ID cannot be empty.'
   if (!isStrictStudentId(id)) return 'Invalid Student ID format. Student ID must be exactly 9 digits.'
   return ''
+}
+
+export function getRoleAwareStudentIdValidationMessage(value: unknown, role = getStoredFrontendRole()): string {
+  const id = String(value || '').trim()
+  if (!id) return 'Student ID cannot be empty.'
+
+  if (role === 'coordinator' || role === 'consultant') {
+    if (!/^[A-Za-z0-9_-]+$/.test(id)) {
+      return 'Invalid student identifier format.'
+    }
+    return ''
+  }
+
+  return getStrictStudentIdValidationMessage(id)
+}
+
+function buildFallbackStudentProfile(studentId: string): StudentInfo {
+  const id = String(studentId || '').trim()
+  return normalizeOrgStudent(
+    {
+      id,
+      studentId: id,
+      username: id,
+      realName: id,
+    },
+    id,
+  )
 }
 
 function getStoredFrontendRole(): string {
@@ -287,10 +320,9 @@ export async function fetchRecordsForStudent(
   filter?: StudentRecordFilter,
 ): Promise<InterviewRecord[]> {
   const id = String(studentId || '').trim()
-  const validation = getStrictStudentIdValidationMessage(id)
-  if (validation) throw new Error(validation)
-
   const role = getStoredFrontendRole()
+  const validation = getRoleAwareStudentIdValidationMessage(id, role)
+  if (validation) throw new Error(validation)
 
   // Updated API note:
   // The latest OpenAPI keeps GET /api/mentoring/records/mine as the stable Mentor endpoint.
@@ -305,6 +337,26 @@ export async function fetchRecordsForStudent(
   const params: QueryParams = {}
   if (filter?.academicYear) params.academicYear = filter.academicYear
   if (filter?.mentorKeyword) params.mentorKeyword = filter.mentorKeyword
+
+  if (role === 'coordinator' || role === 'consultant') {
+    try {
+      const res = await get<any[]>(
+        `/api/mentoring/records/student/${encodeURIComponent(id)}`,
+        Object.keys(params).length ? params : undefined,
+      )
+      return (unwrap(res) || []).map(normalizeRecord)
+    } catch {
+      try {
+        const res = await get<any[]>(
+          `/records/student/${encodeURIComponent(id)}`,
+          Object.keys(params).length ? params : undefined,
+        )
+        return (unwrap(res) || []).map(normalizeRecord)
+      } catch {
+        return []
+      }
+    }
+  }
 
   try {
     // Faculty Consultant / Coordinator record browsing endpoint in the updated OpenAPI.
@@ -410,10 +462,9 @@ export async function searchStudentInMyGroups(studentId: string): Promise<Studen
 
 export async function lookupStudent(studentId: string): Promise<StudentInfo | null> {
   const id = String(studentId || '').trim()
-  const validation = getStrictStudentIdValidationMessage(id)
-  if (validation) throw new Error(validation)
-
   const role = getStoredFrontendRole()
+  const validation = getRoleAwareStudentIdValidationMessage(id, role)
+  if (validation) throw new Error(validation)
 
   if (role === 'mentor') {
     // Mentor searches must stay scoped to the mentor's own groups.
@@ -429,18 +480,62 @@ export async function lookupStudent(studentId: string): Promise<StudentInfo | nu
   }
 
   if (role === 'coordinator') {
-    // Coordinator: scoped to own department via GET /api/org/my-dept/member/{userId}.
     try {
       const member = await getMyDeptMember(id)
-      return normalizeStudentPayload(member, id)
+      const student = normalizeStudentPayload(member, id)
+      if (student) return student
     } catch {
-      try {
-        const student = await lookupOrgStudent(id)
-        return normalizeStudentPayload(student, id)
-      } catch {
-        return searchStudentInMyGroups(id)
-      }
+      // continue
     }
+
+    try {
+      const student = await lookupOrgStudent(id)
+      const normalized = normalizeStudentPayload(student, id)
+      if (normalized) return normalized
+    } catch {
+      // continue
+    }
+
+    try {
+      const scope = await searchMyScope(id)
+      const match = scope.students.find((item) => {
+        const candidates = [item.studentId, item.id, item.username].map((value) =>
+          String(value || '').trim(),
+        )
+        return candidates.includes(id)
+      })
+      if (match) return normalizeStudentPayload(match, id)
+    } catch {
+      // continue
+    }
+
+    // Case-linked students may sit outside coordinator dept lookup APIs.
+    return buildFallbackStudentProfile(id)
+  }
+
+  if (role === 'consultant') {
+    try {
+      const student = await lookupOrgStudent(id)
+      const normalized = normalizeStudentPayload(student, id)
+      if (normalized) return normalized
+    } catch {
+      // continue
+    }
+
+    try {
+      const scope = await searchMyScope(id)
+      const match = scope.students.find((item) => {
+        const candidates = [item.studentId, item.id, item.username].map((value) =>
+          String(value || '').trim(),
+        )
+        return candidates.includes(id)
+      })
+      if (match) return normalizeStudentPayload(match, id)
+    } catch {
+      // continue
+    }
+
+    return buildFallbackStudentProfile(id)
   }
 
   try {
@@ -786,10 +881,207 @@ export async function createAppointmentSlots(payload: {
   startTimes: string[]
 }): Promise<AppointmentSlot[]> {
   const res = await post<any[]>('/api/mentoring/appointments/slots', payload)
-  return (unwrap(res) || []).map(normalizeSlot)
+  const rows = (unwrap(res) || []).map(normalizeSlot)
+  const mentorId = rows.find((row) => row.mentorId)?.mentorId
+  if (mentorId) rememberMentorSlotOwnerId(String(mentorId))
+  rows.forEach((row) => upsertCachedMentorSlot(row))
+  return rows
 }
 
 export const createSlots = createAppointmentSlots
+
+function looksLikeMentorSysId(value: string): boolean {
+  const id = value.trim()
+  if (!id) return false
+  if (/^[0-9a-f]{32}$/i.test(id)) return true
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return true
+  return id.length >= 20 && !id.includes('_') && /^[0-9a-f]+$/i.test(id)
+}
+
+function getStoredUserInfoRecord(): Record<string, any> {
+  try {
+    return JSON.parse(localStorage.getItem('userInfo') || '{}')
+  } catch {
+    return {}
+  }
+}
+
+export function rememberMentorSlotOwnerId(mentorId: string): void {
+  const id = String(mentorId || '').trim()
+  if (id) localStorage.setItem(MENTOR_SLOT_OWNER_KEY, id)
+}
+
+function getMentorSlotsCacheKey(): string {
+  const username = String(localStorage.getItem('username') || 'unknown').trim()
+  return `${MENTOR_SLOTS_CACHE_PREFIX}${username}`
+}
+
+export function loadCachedMentorAppointmentSlots(): AppointmentSlot[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(getMentorSlotsCacheKey()) || '[]')
+    return Array.isArray(raw) ? raw.map(normalizeSlot) : []
+  } catch {
+    return []
+  }
+}
+
+function saveCachedMentorAppointmentSlots(rows: AppointmentSlot[]): void {
+  localStorage.setItem(getMentorSlotsCacheKey(), JSON.stringify(rows))
+}
+
+export function upsertCachedMentorSlot(slot: AppointmentSlot): void {
+  const slotId = String(slot.slotId || '').trim()
+  if (!slotId) return
+
+  const rows = loadCachedMentorAppointmentSlots()
+  const index = rows.findIndex((row) => row.slotId === slotId)
+  if (index >= 0) {
+    rows[index] = { ...rows[index], ...slot, slotId }
+  } else {
+    rows.push({ ...slot, slotId })
+  }
+  saveCachedMentorAppointmentSlots(rows)
+}
+
+function removeCachedMentorSlot(slotId: string): void {
+  const id = String(slotId || '').trim()
+  if (!id) return
+  saveCachedMentorAppointmentSlots(loadCachedMentorAppointmentSlots().filter((row) => row.slotId !== id))
+}
+
+export function tagMentorSlotInvitation(
+  slotId: string,
+  studentId: string,
+  studentName?: string,
+): AppointmentSlot | null {
+  const id = String(slotId || '').trim()
+  const invitedStudentId = String(studentId || '').trim()
+  if (!id || !invitedStudentId) return null
+
+  const rows = loadCachedMentorAppointmentSlots()
+  const existing = rows.find((row) => row.slotId === id)
+  if (!existing) return null
+
+  const updated: AppointmentSlot = {
+    ...existing,
+    invitedStudentId,
+    invitedStudentName: studentName || invitedStudentId,
+  }
+  upsertCachedMentorSlot(updated)
+  return updated
+}
+
+export async function resolveMentorSlotOwnerIds(): Promise<string[]> {
+  const info = getStoredUserInfoRecord()
+  const user = info.user || info
+  const cached = localStorage.getItem(MENTOR_SLOT_OWNER_KEY) || ''
+
+  const raw = [
+    cached,
+    info.mentorId,
+    user.mentorId,
+    user.id,
+    user.userId,
+    info.userId,
+    info.id,
+    user.username,
+    info.username,
+    localStorage.getItem('userId'),
+    localStorage.getItem('username'),
+  ]
+
+  const unique = Array.from(new Set(raw.map((item) => String(item || '').trim()).filter(Boolean)))
+
+  const username = String(localStorage.getItem('username') || user.username || info.username || '').trim()
+  if (username && !unique.some(looksLikeMentorSysId)) {
+    try {
+      const fresh = await getUserInfoApi(username)
+      const profile = (fresh as AnyRecord)?.user ?? fresh
+      const sysId = String(profile?.id ?? profile?.userId ?? '').trim()
+      if (sysId) unique.unshift(sysId)
+    } catch {
+      // continue
+    }
+  }
+
+  return unique.sort((a, b) => {
+    const score = (value: string) => {
+      if (value === cached) return 0
+      if (looksLikeMentorSysId(value)) return 1
+      return 2
+    }
+    return score(a) - score(b)
+  })
+}
+
+type AnyRecord = Record<string, any>
+
+async function tryListMentorSlotsByPath(path: string): Promise<AppointmentSlot[]> {
+  try {
+    const res = await get<any[]>(path)
+    return (unwrap(res) || []).map(normalizeSlot)
+  } catch {
+    return []
+  }
+}
+
+export async function listMyMentorAppointmentSlots(): Promise<AppointmentSlot[]> {
+  const cached = loadCachedMentorAppointmentSlots()
+  const merged = new Map<string, AppointmentSlot>()
+  for (const row of cached) {
+    if (row.slotId) merged.set(row.slotId, row)
+  }
+
+  const candidates = await resolveMentorSlotOwnerIds()
+  const username = String(localStorage.getItem('username') || '').trim()
+
+  if (username && !candidates.some(looksLikeMentorSysId)) {
+    try {
+      const mentors = await searchMentors(username)
+      const match =
+          mentors.find(
+              (mentor) =>
+                  mentor.mentorId === username ||
+                  mentor.username === username ||
+                  mentor.mentorName === username,
+          ) || mentors[0]
+
+      if (match?.mentorId) {
+        candidates.unshift(String(match.mentorId))
+        rememberMentorSlotOwnerId(String(match.mentorId))
+      }
+    } catch {
+      // mentor search is unavailable for mentor role on some backend builds
+    }
+  }
+
+  for (const path of [
+    '/api/mentoring/appointments/slots/mine',
+    '/api/mentoring/appointments/my-slots',
+  ]) {
+    for (const row of await tryListMentorSlotsByPath(path)) {
+      if (row.slotId) merged.set(row.slotId, { ...merged.get(row.slotId), ...row })
+    }
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const rows = await getMentorAppointmentSlots(candidate)
+      if (rows.length > 0) {
+        rememberMentorSlotOwnerId(String(rows[0]?.mentorId || candidate))
+      }
+      for (const row of rows) {
+        if (row.slotId) merged.set(row.slotId, { ...merged.get(row.slotId), ...row })
+      }
+    } catch {
+      // GET /slots/mentor/{id} returns 403 for mentor on current backend
+    }
+  }
+
+  const combined = [...merged.values()]
+  saveCachedMentorAppointmentSlots(combined)
+  return combined
+}
 
 export async function sendInterviewInvitation(
   _studentId: string,
@@ -830,7 +1122,10 @@ export async function setAppointmentVenue(slotId: string, venue: string): Promis
     `/api/mentoring/appointments/slots/${encodeURIComponent(slotId)}/venue`,
     { venue },
   )
-  return normalizeSlot(unwrap(res))
+  const row = normalizeSlot(unwrap(res))
+  const cached = loadCachedMentorAppointmentSlots().find((item) => item.slotId === slotId)
+  upsertCachedMentorSlot({ ...cached, ...row, slotId })
+  return row
 }
 
 export const setAppointmentSlotVenue = setAppointmentVenue
@@ -840,6 +1135,7 @@ export const mentorConfirmVenue = setAppointmentVenue
 export async function cancelAppointmentSlot(slotId: string): Promise<void> {
   const res = await del<null>(`/api/mentoring/appointments/slots/${encodeURIComponent(slotId)}`)
   unwrap(res)
+  removeCachedMentorSlot(slotId)
 }
 
 export const cancelSlot = cancelAppointmentSlot
@@ -857,13 +1153,18 @@ export async function exportGroupRecords(groupId: string): Promise<Blob> {
 export const exportGroupRecordsDoc = exportGroupRecords
 
 export async function exportGroupRecordsForConsultant(groupId: string): Promise<Blob> {
-  return downloadBlob(`/export/group/${encodeURIComponent(groupId)}`)
+  return downloadBlob(`/api/mentoring/export/group/${encodeURIComponent(groupId)}`)
 }
 
 export const exportFcGroupRecords = exportGroupRecordsForConsultant
 
 export async function exportConsultantRecords(filter: ConsultantExportFilter): Promise<Blob> {
-  const params: QueryParams = { ...filter }
+  const params: QueryParams = {}
+
+  for (const [key, value] of Object.entries(filter)) {
+    const text = String(value ?? '').trim()
+    if (text) params[key] = text
+  }
 
   if (filter.mentorName && !params.mentorKeyword) params.mentorKeyword = filter.mentorName
   if (filter.studentName && !params.studentKeyword) params.studentKeyword = filter.studentName

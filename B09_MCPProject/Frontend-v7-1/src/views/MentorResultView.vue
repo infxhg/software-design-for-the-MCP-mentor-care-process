@@ -85,7 +85,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getRole } from '../types'
-import { getMentorsByOrg, searchAllMentors } from '../api/org'
+import { searchAllMentors, searchMyDeptMentors } from '../api/org'
 import type { MentorFromApi } from '../api/org'
 
 const route = useRoute()
@@ -145,18 +145,7 @@ onMounted(async () => {
        */
       results.value = await searchAllMentors(kw)
     } else if (role === 'coordinator') {
-      const orgId = String(route.query.orgId || '').trim()
-
-      if (!orgId) {
-        message.value = 'Please select a department first.'
-        return
-      }
-
-      /**
-       * 修改点：
-       * Coordinator 在 department 范围搜索 mentor。
-       */
-      results.value = await getMentorsByOrg(orgId, kw)
+      results.value = await searchMyDeptMentors(kw)
     } else {
       message.value = 'Authorization warning: You do not have permission to search mentor information.'
     }

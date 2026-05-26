@@ -4,21 +4,25 @@
       <div>
         <h1>Interview Arrangement</h1>
         <p class="desc">
-          Create 30-minute available slots, watch student bookings, set venues, and cancel unusable slots.
+          Arrange a 30-minute interview for a student, set the venue, and track booking status below.
         </p>
       </div>
       <div class="actions">
-        <button class="secondary" @click="goVenue">Venue Only Page</button>
-        <button class="secondary" @click="goHome">Home</button>
+        <button type="button" class="secondary" @click="goVenue">Venue Only Page</button>
+        <button type="button" class="secondary" @click="goHome">Home</button>
       </div>
     </div>
 
     <section class="card">
-      <h2>Create Available Slots</h2>
+      <h2>Arrange Interview</h2>
+      <p class="hint">
+        Fill in the same fields as the table below. After saving, the student can confirm the slot
+        from <strong>Select Interview Appointment</strong>.
+      </p>
 
-      <div class="form-row">
+      <div class="form-grid">
         <div class="form-item">
-          <label>Slot Date</label>
+          <label>Date</label>
           <input v-model="slotDate" type="date" />
         </div>
 
@@ -27,42 +31,52 @@
           <input v-model="slotTime" type="time" step="1800" />
         </div>
 
-        <button class="primary add-button" @click="addSlot">Add Slot</button>
+        <div class="form-item span-2 student-picker">
+          <label>Student</label>
+          <div class="picker-shell">
+            <input
+              v-model="studentQuery"
+              placeholder="Type student ID or name, pick from suggestions, or press Enter to search"
+              autocomplete="off"
+              @focus="studentPickerOpen = true"
+              @input="onStudentQueryInput"
+              @keydown.enter.prevent="() => resolveStudentSelection()"
+              @blur="onStudentBlur"
+            />
+
+            <ul v-if="studentPickerOpen && filteredStudentOptions.length" class="picker-list">
+              <li
+                v-for="student in filteredStudentOptions"
+                :key="student.studentId"
+                @mousedown.prevent="pickStudent(student)"
+              >
+                {{ formatStudentLabel(student) }}
+              </li>
+            </ul>
+
+            <p v-if="selectedStudentId" class="picker-hint">
+              Selected: {{ selectedStudentLabel }}
+            </p>
+          </div>
+        </div>
+
+        <div class="form-item span-2">
+          <label>Venue (optional)</label>
+          <input v-model.trim="venueDraft" placeholder="Room 101" />
+        </div>
       </div>
-
-      <table v-if="draftSlots.length > 0">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Start</th>
-            <th>End</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-
-        <tbody>
-          <tr v-for="slot in draftSlots" :key="slot.key">
-            <td>{{ slot.slotDate }}</td>
-            <td>{{ slot.startTime }}</td>
-            <td>{{ slot.endTime }}</td>
-            <td>
-              <button class="danger small" @click="removeDraftSlot(slot.key)">Remove</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      <p class="hint">
-        Backend endpoint creates slots for one date at a time. If you add slots from multiple dates,
-        save them separately.
-      </p>
 
       <p v-if="message" class="message" :class="{ error: isError }">
         {{ message }}
       </p>
 
-      <button class="primary" :disabled="submitting || draftSlots.length === 0" @click="createSlots">
-        {{ submitting ? 'Creating...' : 'Create Slots' }}
+      <button
+        type="button"
+        class="primary save-button"
+        :disabled="submitting || resolvingStudent || !slotDate || !slotTime || !selectedStudentId"
+        @click="saveInterviewSlot"
+      >
+        {{ submitting ? 'Saving...' : 'Save Interview Slot' }}
       </button>
     </section>
 
@@ -71,10 +85,10 @@
         <div>
           <h2>My Interview Slots</h2>
           <p class="hint">
-            Booked slots can receive a venue. Unneeded slots can be cancelled.
+            Student shows as invited until they book. Booked slots can receive or update a venue.
           </p>
         </div>
-        <button class="secondary" :disabled="loadingSlots" @click="loadSlots">
+        <button type="button" class="secondary" :disabled="loadingSlots" @click="() => loadSlots()">
           {{ loadingSlots ? 'Loading...' : 'Refresh' }}
         </button>
       </div>
@@ -103,18 +117,19 @@
             <td>{{ slot.endTime || '-' }}</td>
             <td>
               <span class="status" :class="statusClass(slot)">
-                {{ slot.status || inferSlotStatus(slot) }}
+                {{ displayStatus(slot) }}
               </span>
             </td>
-            <td>{{ slot.studentId || '-' }}</td>
+            <td>{{ displayStudent(slot) }}</td>
             <td>
               <input
                 v-model.trim="venues[slot.slotId]"
-                :placeholder="slot.venue || (isBooked(slot) ? 'Room 101' : 'Available slot')"
+                :placeholder="slot.venue || 'Room 101'"
               />
             </td>
             <td class="op-cell">
               <button
+                type="button"
                 class="primary small"
                 :disabled="savingVenueId === slot.slotId || !venues[slot.slotId]"
                 @click="saveVenue(slot)"
@@ -122,6 +137,7 @@
                 {{ savingVenueId === slot.slotId ? 'Saving...' : 'Save Venue' }}
               </button>
               <button
+                type="button"
                 class="danger small"
                 :disabled="cancellingSlotId === slot.slotId"
                 @click="cancelSlot(slot)"
@@ -146,23 +162,27 @@ import { useRouter } from 'vue-router'
 import {
   cancelAppointmentSlot,
   createAppointmentSlots,
-  getMentorAppointmentSlots,
+  getMyInterviewRecords,
+  listMyMentorAppointmentSlots,
+  lookupStudent,
   setAppointmentVenue,
+  tagMentorSlotInvitation,
+  upsertCachedMentorSlot,
   type AppointmentSlot,
 } from '../../api/mentoring'
+import { sendNormalMessage } from '../../api/communication'
 
-type DraftSlot = {
-  key: string
-  slotDate: string
-  startTime: string
-  endTime: string
+type StudentOption = {
+  studentId: string
+  name?: string
+  realName?: string
 }
 
 const router = useRouter()
 
 const slotDate = ref('')
 const slotTime = ref('')
-const draftSlots = ref<DraftSlot[]>([])
+const venueDraft = ref('')
 const mySlots = ref<AppointmentSlot[]>([])
 
 const submitting = ref(false)
@@ -175,8 +195,35 @@ const isError = ref(false)
 const slotLoadMessage = ref('')
 const isSlotLoadError = ref(false)
 
+const studentQuery = ref('')
+const studentOptions = ref<StudentOption[]>([])
+const selectedStudentId = ref('')
+const studentPickerOpen = ref(false)
+const resolvingStudent = ref(false)
+
 const venues = reactive<Record<string, string>>({})
-const HALF_HOUR_TIME_PATTERN = /^\d{2}:(00|30)$/
+
+const filteredStudentOptions = computed(() => {
+  const query = studentQuery.value.trim().toLowerCase()
+  const rows = query
+    ? studentOptions.value.filter((student) => {
+        const label = formatStudentLabel(student).toLowerCase()
+        return (
+          student.studentId.toLowerCase().includes(query) ||
+          label.includes(query) ||
+          String(student.name || '').toLowerCase().includes(query) ||
+          String(student.realName || '').toLowerCase().includes(query)
+        )
+      })
+    : studentOptions.value
+
+  return rows.slice(0, 20)
+})
+
+const selectedStudentLabel = computed(() => {
+  const student = studentOptions.value.find((row) => row.studentId === selectedStudentId.value)
+  return student ? formatStudentLabel(student) : selectedStudentId.value
+})
 
 const sortedSlots = computed(() => {
   return [...mySlots.value].sort((a, b) => {
@@ -186,99 +233,56 @@ const sortedSlots = computed(() => {
   })
 })
 
-onMounted(() => loadSlots(true))
+onMounted(async () => {
+  await Promise.all([loadSlots(true), loadStudentOptions()])
+})
 
-function getStoredUserInfo(): any {
+async function loadStudentOptions() {
+  const map = new Map<string, StudentOption>()
+
   try {
-    return JSON.parse(localStorage.getItem('userInfo') || '{}')
+    const records = await getMyInterviewRecords()
+    for (const record of records) {
+      const studentId = String(record.studentId || '').trim()
+      if (!studentId) continue
+      map.set(studentId, { studentId })
+    }
   } catch {
-    return {}
+    // ignore
   }
+
+  studentOptions.value = [...map.values()].sort((a, b) => a.studentId.localeCompare(b.studentId))
 }
 
-function getMentorIdCandidates(): string[] {
-  const info = getStoredUserInfo()
-  const user = info.user || {}
-
-  const raw = [
-    info.mentorId,
-    user.mentorId,
-    info.userId,
-    user.userId,
-    info.id,
-    user.id,
-    info.username,
-    user.username,
-    localStorage.getItem('userId'),
-    localStorage.getItem('username'),
-  ]
-
-  return Array.from(
-    new Set(
-      raw
-        .map((item) => String(item || '').trim())
-        .filter(Boolean),
-    ),
-  )
-}
-
-function addSlot() {
+async function saveInterviewSlot() {
   clearCreateMessage()
 
-  if (!slotDate.value || !slotTime.value) {
-    showCreateError('Please select date and start time.')
+  if (!selectedStudentId.value && studentQuery.value.trim()) {
+    await resolveStudentSelection()
+  }
+
+  const date = slotDate.value
+  const startTime = normalizeHalfHourTime(slotTime.value)
+  const studentId = selectedStudentId.value.trim()
+  const venue = venueDraft.value.trim()
+
+  if (!date) {
+    showCreateError('Please select interview date.')
     return
   }
 
-  if (slotDate.value < todayText()) {
-    showCreateError('Slot date cannot be earlier than today.')
+  if (date < todayText()) {
+    showCreateError('Interview date cannot be earlier than today.')
     return
   }
 
-  if (!HALF_HOUR_TIME_PATTERN.test(slotTime.value)) {
+  if (!startTime) {
     showCreateError('Start time must be on a 30-minute boundary, for example 09:00 or 09:30.')
     return
   }
 
-  const endTime = addThirtyMinutes(slotTime.value)
-  const key = `${slotDate.value}_${slotTime.value}`
-
-  if (draftSlots.value.some((slot) => slot.key === key)) {
-    showCreateError('This slot already exists in the draft list.')
-    return
-  }
-
-  draftSlots.value.push({
-    key,
-    slotDate: slotDate.value,
-    startTime: slotTime.value,
-    endTime,
-  })
-
-  slotTime.value = ''
-}
-
-function removeDraftSlot(key: string) {
-  draftSlots.value = draftSlots.value.filter((slot) => slot.key !== key)
-}
-
-async function createSlots() {
-  clearCreateMessage()
-
-  if (!draftSlots.value.length) {
-    showCreateError('Please add at least one slot.')
-    return
-  }
-
-  const dates = Array.from(new Set(draftSlots.value.map((slot) => slot.slotDate)))
-  if (dates.length > 1) {
-    showCreateError('Please create slots for one date at a time.')
-    return
-  }
-
-  const onlyDate = dates[0]
-  if (!onlyDate) {
-    showCreateError('Please select a slot date.')
+  if (!studentId) {
+    showCreateError('Please select a student.')
     return
   }
 
@@ -286,23 +290,65 @@ async function createSlots() {
 
   try {
     const createdRows = await createAppointmentSlots({
-      slotDate: onlyDate,
-      startTimes: draftSlots.value.map((slot) => slot.startTime),
+      slotDate: date,
+      startTimes: [startTime],
     })
 
-    if (createdRows.length > 0) {
-      mySlots.value = dedupeSlots([...mySlots.value, ...createdRows])
-      createdRows.forEach((slot) => {
-        if (slot.slotId) venues[slot.slotId] = slot.venue || venues[slot.slotId] || ''
-      })
+    const slot = createdRows[0]
+    if (!slot?.slotId) {
+      throw new Error('Backend did not return slotId.')
     }
 
-    message.value = 'Slots created successfully.'
+    const studentName =
+      studentOptions.value.find((row) => row.studentId === studentId)?.name ||
+      studentOptions.value.find((row) => row.studentId === studentId)?.realName
+
+    tagMentorSlotInvitation(slot.slotId, studentId, studentName)
+
+    let savedSlot: AppointmentSlot = {
+      ...slot,
+      invitedStudentId: studentId,
+      invitedStudentName: studentName || studentId,
+    }
+
+    if (venue) {
+      savedSlot = await setAppointmentVenue(slot.slotId, venue)
+      savedSlot = {
+        ...savedSlot,
+        invitedStudentId: studentId,
+        invitedStudentName: studentName || studentId,
+      }
+      upsertCachedMentorSlot(savedSlot)
+    }
+
+    try {
+      const endTime = savedSlot.endTime || addThirtyMinutes(startTime)
+      await sendNormalMessage(
+        studentId,
+        [
+          'Interview appointment invitation:',
+          `Date: ${date}`,
+          `Time: ${startTime}${endTime ? ` - ${endTime}` : ''}`,
+          venue ? `Venue: ${venue}` : 'Venue: to be confirmed',
+          'Please confirm this slot from your "Select Interview Appointment" page.',
+        ].join('\n'),
+      )
+    } catch {
+      // slot is already saved; message failure should not block the mentor flow
+    }
+
+    mySlots.value = await listMyMentorAppointmentSlots()
+    syncVenueInputs()
+
+    message.value = `Interview slot saved for ${studentId}.`
     isError.value = false
-    draftSlots.value = []
-    await loadSlots(true)
+    slotDate.value = ''
+    slotTime.value = ''
+    venueDraft.value = ''
+    studentQuery.value = ''
+    selectedStudentId.value = ''
   } catch (err: any) {
-    showCreateError(toFriendlyError(err, 'Failed to create slots.'))
+    showCreateError(toFriendlyError(err, 'Failed to save interview slot.'))
   } finally {
     submitting.value = false
   }
@@ -313,57 +359,27 @@ async function loadSlots(silent = false) {
   isSlotLoadError.value = false
   loadingSlots.value = true
 
-  const candidates = getMentorIdCandidates()
-  if (candidates.length === 0) {
-    slotLoadMessage.value = 'Cannot find current mentor ID or username from localStorage.'
-    isSlotLoadError.value = true
-    loadingSlots.value = false
-    return
-  }
+  try {
+    mySlots.value = await listMyMentorAppointmentSlots()
+    syncVenueInputs()
 
-  let lastError = ''
-  let loaded: AppointmentSlot[] = []
-  let hadSuccessfulEmptyResponse = false
-
-  for (const candidate of candidates) {
-    try {
-      const rows = await getMentorAppointmentSlots(candidate)
-      if (rows.length > 0) {
-        loaded = rows
-        break
-      }
-      hadSuccessfulEmptyResponse = true
-    } catch (err: any) {
-      lastError = String(err?.message || err || '')
+    if (!silent && mySlots.value.length === 0) {
+      slotLoadMessage.value = 'No slots yet. Arrange an interview above.'
     }
-  }
-
-  const shouldReplaceRows = loaded.length > 0 || hadSuccessfulEmptyResponse
-
-  if (loaded.length === 0 && !hadSuccessfulEmptyResponse && lastError) {
+  } catch (err: any) {
     if (!silent) {
-      slotLoadMessage.value = toFriendlyError(lastError, 'Failed to load slots.')
+      slotLoadMessage.value = toFriendlyError(err, 'Failed to load slots.')
       isSlotLoadError.value = true
     }
+  } finally {
+    loadingSlots.value = false
   }
-
-  if (shouldReplaceRows) {
-    mySlots.value = dedupeSlots(loaded)
-    mySlots.value.forEach((slot) => {
-      if (slot.slotId) venues[slot.slotId] = slot.venue || venues[slot.slotId] || ''
-    })
-  }
-
-  loadingSlots.value = false
 }
 
-function dedupeSlots(rows: AppointmentSlot[]): AppointmentSlot[] {
-  const map = new Map<string, AppointmentSlot>()
-  for (const row of rows) {
-    const key = row.slotId || `${row.slotDate}-${row.startTime}-${row.studentId || ''}`
-    map.set(key, row)
-  }
-  return [...map.values()]
+function syncVenueInputs() {
+  mySlots.value.forEach((slot) => {
+    if (slot.slotId) venues[slot.slotId] = slot.venue || venues[slot.slotId] || ''
+  })
 }
 
 function isBooked(slot: AppointmentSlot): boolean {
@@ -371,12 +387,25 @@ function isBooked(slot: AppointmentSlot): boolean {
   return Boolean(slot.studentId) || ['BOOKED', 'CONFIRMED', 'RESERVED', 'OCCUPIED'].includes(status)
 }
 
-function inferSlotStatus(slot: AppointmentSlot): string {
-  return isBooked(slot) ? 'BOOKED' : 'AVAILABLE'
+function displayStatus(slot: AppointmentSlot): string {
+  if (isBooked(slot)) return slot.status || 'BOOKED'
+  if (slot.invitedStudentId) return 'INVITED'
+  return slot.status || 'AVAILABLE'
 }
 
 function statusClass(slot: AppointmentSlot): string {
-  return isBooked(slot) ? 'booked' : 'available'
+  if (isBooked(slot)) return 'booked'
+  if (slot.invitedStudentId) return 'invited'
+  return 'available'
+}
+
+function displayStudent(slot: AppointmentSlot): string {
+  if (slot.studentId) return String(slot.studentId)
+  if (slot.invitedStudentId) {
+    const name = slot.invitedStudentName ? ` (${slot.invitedStudentName})` : ''
+    return `${slot.invitedStudentId}${name} · invited`
+  }
+  return '-'
 }
 
 async function saveVenue(slot: AppointmentSlot) {
@@ -389,12 +418,108 @@ async function saveVenue(slot: AppointmentSlot) {
   savingVenueId.value = slot.slotId
 
   try {
-    await setAppointmentVenue(slot.slotId, venue)
-    await loadSlots()
+    const updated = await setAppointmentVenue(slot.slotId, venue)
+    const index = mySlots.value.findIndex((row) => row.slotId === slot.slotId)
+    if (index >= 0) {
+      mySlots.value[index] = {
+        ...mySlots.value[index],
+        ...updated,
+        venue,
+        invitedStudentId: mySlots.value[index]?.invitedStudentId,
+        invitedStudentName: mySlots.value[index]?.invitedStudentName,
+      }
+    }
   } catch (err: any) {
     window.alert(toFriendlyError(err, 'Save venue failed.'))
   } finally {
     savingVenueId.value = ''
+  }
+}
+
+function formatStudentLabel(student: StudentOption): string {
+  const name = student.name || student.realName
+  return name ? `${student.studentId} - ${name}` : student.studentId
+}
+
+function pickStudent(student: StudentOption) {
+  selectedStudentId.value = student.studentId
+  studentQuery.value = formatStudentLabel(student)
+  studentPickerOpen.value = false
+}
+
+function onStudentQueryInput() {
+  const query = studentQuery.value.trim()
+  const matched = studentOptions.value.find(
+    (student) =>
+      student.studentId === query || formatStudentLabel(student).toLowerCase() === query.toLowerCase(),
+  )
+  selectedStudentId.value = matched?.studentId || ''
+  studentPickerOpen.value = true
+}
+
+function onStudentBlur() {
+  window.setTimeout(async () => {
+    studentPickerOpen.value = false
+    if (!selectedStudentId.value && studentQuery.value.trim()) {
+      await resolveStudentSelection(true)
+    }
+  }, 150)
+}
+
+async function resolveStudentSelection(silent = false) {
+  const query = studentQuery.value.trim()
+  if (!query) {
+    selectedStudentId.value = ''
+    return
+  }
+
+  const exact = studentOptions.value.find(
+    (student) =>
+      student.studentId === query ||
+      formatStudentLabel(student).toLowerCase() === query.toLowerCase(),
+  )
+  if (exact) {
+    pickStudent(exact)
+    return
+  }
+
+  if (filteredStudentOptions.value.length === 1) {
+    pickStudent(filteredStudentOptions.value[0]!)
+    return
+  }
+
+  resolvingStudent.value = true
+
+  try {
+    const student = await lookupStudent(query)
+    if (!student) {
+      selectedStudentId.value = ''
+      if (!silent) showCreateError('Student not found in your groups.')
+      return
+    }
+
+    const option: StudentOption = {
+      studentId: String(student.studentId || query),
+      name: student.name || student.realName || undefined,
+      realName: student.realName || student.name || undefined,
+    }
+
+    if (!studentOptions.value.some((row) => row.studentId === option.studentId)) {
+      studentOptions.value = [...studentOptions.value, option].sort((a, b) =>
+        a.studentId.localeCompare(b.studentId),
+      )
+    }
+
+    pickStudent(option)
+    if (!silent) {
+      message.value = `Student ${option.studentId} selected.`
+      isError.value = false
+    }
+  } catch (err: any) {
+    selectedStudentId.value = ''
+    if (!silent) showCreateError(toFriendlyError(err, 'Student search failed.'))
+  } finally {
+    resolvingStudent.value = false
   }
 }
 
@@ -406,7 +531,8 @@ async function cancelSlot(slot: AppointmentSlot) {
 
   try {
     await cancelAppointmentSlot(slot.slotId)
-    await loadSlots()
+    mySlots.value = mySlots.value.filter((row) => row.slotId !== slot.slotId)
+    delete venues[slot.slotId]
   } catch (err: any) {
     window.alert(toFriendlyError(err, 'Cancel slot failed.'))
   } finally {
@@ -414,8 +540,17 @@ async function cancelSlot(slot: AppointmentSlot) {
   }
 }
 
+function normalizeHalfHourTime(value: string): string {
+  const match = String(value || '').match(/^(\d{2}):(\d{2})/)
+  if (!match) return ''
+  const minutes = match[2]
+  if (minutes !== '00' && minutes !== '30') return ''
+  return `${match[1]}:${minutes}`
+}
+
 function todayText(): string {
-  return new Date().toISOString().slice(0, 10)
+  const date = new Date()
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
 function addThirtyMinutes(time: string): string {
@@ -465,6 +600,46 @@ function showCreateError(text: string) {
   align-items: center;
 }
 
+.student-picker {
+  position: relative;
+}
+
+.picker-shell {
+  position: relative;
+}
+
+.picker-list {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 6px 0;
+  list-style: none;
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+.picker-list li {
+  padding: 9px 12px;
+  cursor: pointer;
+}
+
+.picker-list li:hover {
+  background: #eff6ff;
+}
+
+.picker-hint {
+  margin: 8px 0 0;
+  color: #047857;
+  font-size: 13px;
+}
+
 .header,
 .bar {
   justify-content: space-between;
@@ -484,12 +659,15 @@ function showCreateError(text: string) {
   padding: 18px;
 }
 
-.form-row {
-  align-items: flex-end;
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 14px;
 }
 
-.form-item {
-  flex: 1;
+.form-item.span-2 {
+  grid-column: span 2;
 }
 
 label {
@@ -506,38 +684,42 @@ input {
   border-radius: 8px;
 }
 
-button {
+.page-card button {
   padding: 9px 14px;
-  border: 1px solid #cbd5e1;
   border-radius: 8px;
-  background: #fff;
   cursor: pointer;
 }
 
-button:disabled {
+.page-card button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-.primary {
+.page-card button.primary {
   background: #2563eb;
-  border-color: #2563eb;
+  border: 1px solid #2563eb;
   color: #fff;
 }
 
-.secondary {
+.page-card button.secondary {
   background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  color: #1e293b;
 }
 
-.danger {
+.page-card button.danger {
   background: #dc2626;
-  border-color: #dc2626;
+  border: 1px solid #dc2626;
   color: #fff;
 }
 
 .small {
   padding: 6px 10px;
   font-size: 12px;
+}
+
+.save-button {
+  margin-top: 16px;
 }
 
 table {
@@ -580,6 +762,11 @@ th {
   color: #166534;
 }
 
+.status.invited {
+  background: #fef3c7;
+  color: #92400e;
+}
+
 .status.booked {
   background: #dbeafe;
   color: #1d4ed8;
@@ -587,11 +774,19 @@ th {
 
 @media (max-width: 900px) {
   .header,
-  .form-row,
+  .form-grid,
   .bar,
   .op-cell {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .form-item.span-2 {
+    grid-column: span 1;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

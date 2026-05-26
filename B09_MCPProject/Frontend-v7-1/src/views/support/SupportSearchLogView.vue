@@ -3,8 +3,14 @@
     <section class="card">
       <div class="top-row">
         <div>
-          <h1>Search Student Log</h1>
-          <p>Please enter ID or Name to access caring logs.</p>
+          <h1>{{ logScope === 'faculty' ? 'Search Student Log (Faculty)' : 'Search Student Log' }}</h1>
+          <p>
+            {{
+              logScope === 'faculty'
+                  ? 'Enter a student ID to view activity logs within your faculty scope.'
+                  : 'Please enter ID or Name to access caring logs.'
+            }}
+          </p>
         </div>
 
         <button class="secondary-btn" type="button" @click="goHome">
@@ -72,11 +78,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { searchLogUsers, type LogUserSearchResult } from '../../api/support'
+import { computed, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import {
+  searchFacultyLogUsers,
+  searchLogUsers,
+  type LogUserSearchResult,
+} from '../../api/support'
 
+const route = useRoute()
 const router = useRouter()
+
+const logScope = computed(() => (route.meta.logScope === 'faculty' ? 'faculty' : 'support'))
+const logBasePath = computed(() =>
+    logScope.value === 'faculty' ? '/consultant' : '/support',
+)
 
 const keyword = ref('')
 const results = ref<LogUserSearchResult[]>([])
@@ -101,9 +117,10 @@ async function handleSearch(): Promise<void> {
 
   try {
     // 修复点: 只传 query，避免后端因为 userId 和 username 同时存在而触发强制 AND 查询
-    const list = await searchLogUsers({
-      query: q
-    })
+    const list =
+        logScope.value === 'faculty'
+            ? await searchFacultyLogUsers(q)
+            : await searchLogUsers({ query: q })
 
     results.value = list
 
@@ -125,7 +142,7 @@ function viewLog(item: LogUserSearchResult): void {
   const targetId = item.userId || item.username || item.logSearchKey || 'unknown'
 
   router.push({
-    path: `/support/log/${encodeURIComponent(targetId)}`,
+    path: `${logBasePath.value}/log/${encodeURIComponent(targetId)}`,
     query: {
       username: item.username,
       name: item.name,

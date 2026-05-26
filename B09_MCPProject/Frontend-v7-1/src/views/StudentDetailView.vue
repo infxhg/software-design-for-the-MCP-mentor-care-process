@@ -30,6 +30,10 @@
           <button v-if="canEdit" @click="editRecord">Edit Interview Record</button>
         </div>
 
+        <p v-if="limitedProfileMessage" class="message warning">
+          {{ limitedProfileMessage }}
+        </p>
+
         <!-- 修改点：records 加载失败时显示提示 -->
         <p v-if="recordMessage" class="message" :class="{ error: isRecordError }">
           {{ recordMessage }}
@@ -98,6 +102,7 @@ const errorMsg = ref('')
 
 const recordMessage = ref('')
 const isRecordError = ref(false)
+const limitedProfileMessage = ref('')
 
 const canEdit = computed(() => getRole() === 'mentor')
 
@@ -109,6 +114,15 @@ const STUDENT_ID_PATTERN = /^\d{9}$/
 
 function validateStudentId(input: string): string {
   if (!input) return 'Student ID cannot be empty.'
+
+  const role = getRole()
+  if (role === 'coordinator' || role === 'consultant') {
+    if (!/^[A-Za-z0-9_-]+$/.test(input)) {
+      return 'Invalid student identifier format.'
+    }
+    return ''
+  }
+
   if (!STUDENT_ID_PATTERN.test(input)) {
     return 'Invalid Student ID format. Student ID should be 9 digits.'
   }
@@ -157,8 +171,21 @@ onMounted(async () => {
 
     student.value = studentResult
 
+    if (
+      String(studentResult.realName || studentResult.name || '').trim() === studentId &&
+      !studentResult.email
+    ) {
+      limitedProfileMessage.value =
+        'Basic student profile only. This student is linked from a forwarded case but is outside your department lookup scope.'
+    }
+
     try {
       records.value = await fetchRecordsForStudent(studentId)
+      if (!records.value.length && limitedProfileMessage.value) {
+        recordMessage.value =
+          'No interview records are available for this student in your coordinator scope.'
+        isRecordError.value = false
+      }
     } catch (recordErr: any) {
       recordMessage.value = recordErr.message?.includes('403')
           ? 'Authorization warning: You do not have permission to view interview records.'
@@ -183,6 +210,10 @@ function editRecord() {
 }
 
 function goBack() {
+  if (route.query.source === 'case') {
+    router.push('/coordinator/forward-case')
+    return
+  }
   router.push('/search-student')
 }
 
@@ -253,6 +284,13 @@ th {
 
 .error {
   color: #dc2626;
+}
+
+.warning {
+  color: #92400e;
+  background: #fffbeb;
+  padding: 12px 14px;
+  border-radius: 8px;
 }
 
 .loading {

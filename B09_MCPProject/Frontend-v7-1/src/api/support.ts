@@ -2,6 +2,7 @@ import {
   getFeedbackDetail,
   getLogsByUser,
   getUserInfoByIdApi,
+  listFacultyLogs,
   listFeedback,
   listLogs,
   replyFeedback,
@@ -181,15 +182,27 @@ function logMatchesAny(log: OperationLog, keywords: string[]): boolean {
 }
 
 async function tryListLogs(params: LogSearchParams): Promise<OperationLog[]> {
-  // 核心修复：向后端拉取基础日志时清除有冲突隐患的模糊字段包，改用纯净形式调用
-  try {
-    return await listLogs({})
-  } catch {
+  const userId = String(params.userId ?? params.query ?? params.keyword ?? '').trim()
+
+  if (userId) {
     try {
-      return await listLogs(params)
+      const byUser = await getLogsByUser(userId)
+      if (byUser.length > 0) return byUser
     } catch {
-      return []
+      // continue
     }
+
+    try {
+      return await listLogs({ userId })
+    } catch {
+      // continue
+    }
+  }
+
+  try {
+    return await listLogs(params)
+  } catch {
+    return []
   }
 }
 
@@ -264,11 +277,76 @@ export async function searchLogs(params: LogSearchParams = {}): Promise<Operatio
   let logs = await searchLogsByKeywords(keywords, params)
 
   if (logs.length === 0) {
-    const allLogs = await tryListLogs(params)
+    try {
+      logs = await getLogsByUser(query)
+    } catch {
+      // continue
+    }
+  }
+
+  if (logs.length === 0) {
+    const allLogs = await tryListLogs({ ...params, userId: query, query })
     logs = allLogs.filter((log) => logMatchesAny(log, keywords))
   }
 
   return dedupeLogs(logs)
+}
+
+export async function searchFacultyStudentLogs(studentId: string): Promise<OperationLog[]> {
+  const id = String(studentId ?? '').trim()
+  if (!id) return []
+
+  try {
+    const logs = await listFacultyLogs({ studentIds: id })
+    if (logs.length > 0) return dedupeLogs(logs)
+  } catch {
+    // continue
+  }
+
+  return searchFacultyStudentLogsByFilter(id)
+}
+
+async function searchFacultyStudentLogsByFilter(studentId: string): Promise<OperationLog[]> {
+  try {
+    const logs = await listFacultyLogs({})
+    return dedupeLogs(
+        logs.filter((log) => {
+          const raw = log as AnyRecord
+          const text = [
+            raw.userId,
+            raw.studentId,
+            raw.username,
+            raw.detail,
+            raw.action,
+          ]
+              .map((item) => String(item ?? '').toLowerCase())
+              .join(' ')
+          return text.includes(studentId.toLowerCase())
+        }),
+    )
+  } catch {
+    return []
+  }
+}
+
+export async function searchFacultyLogUsers(query: string): Promise<LogUserSearchResult[]> {
+  const q = String(query ?? '').trim()
+  if (!q) return []
+
+  const logs = await searchFacultyStudentLogs(q)
+  if (logs.length === 0) return []
+
+  return [
+    {
+      userId: q,
+      username: q,
+      name: q,
+      role: 'student',
+      matchedLogs: logs.length,
+      logs,
+      logSearchKey: q,
+    },
+  ]
 }
 
 export async function searchLogUsers(params: LogSearchParams = {}): Promise<LogUserSearchResult[]> {

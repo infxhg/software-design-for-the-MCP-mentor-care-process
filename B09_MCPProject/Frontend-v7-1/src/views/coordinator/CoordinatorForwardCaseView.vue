@@ -52,7 +52,16 @@
             <div>
               <h2>Case #{{ getCaseId(item) }}</h2>
               <p class="meta">
-                Student ID: <strong>{{ item.studentId || '-' }}</strong>
+                Student:
+                <button
+                  v-if="item.studentId"
+                  type="button"
+                  class="student-link"
+                  @click="openStudentRecord(item.studentId)"
+                >
+                  {{ item.studentId }}
+                </button>
+                <span v-else>-</span>
               </p>
             </div>
 
@@ -141,6 +150,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   forwardCaseToConsultant,
   listCoordinatorCases,
@@ -157,6 +167,8 @@ interface ConsultantOption {
   username?: string
   email?: string | null
 }
+
+const router = useRouter()
 
 const cases = ref<CaseItem[]>([])
 const consultants = ref<ConsultantOption[]>([])
@@ -196,31 +208,39 @@ async function loadPageData(): Promise<void> {
   isLoading.value = true
 
   try {
-    const [caseList, consultantList] = await Promise.all([
-      listCoordinatorCases(),
-      loadConsultantsSafely(),
-    ])
+    cases.value = await listCoordinatorCases()
 
-    cases.value = caseList
-    consultants.value = consultantList
-
-    if (caseList.length === 0) {
+    if (cases.value.length === 0) {
       caseMessage.value = 'No cases assigned to this coordinator.'
-      isCaseError.value = false
-    }
-
-    if (caseList.length > 0 && consultantList.length === 0) {
-      caseMessage.value =
-        'Cases loaded, but no Faculty Consultant list was returned. You can enter a consultant ID manually.'
       isCaseError.value = false
     }
   } catch (error: any) {
     cases.value = []
     isCaseError.value = true
     caseMessage.value = buildCaseErrorMessage(error)
+  }
+
+  try {
+    consultants.value = await loadConsultantsSafely()
+    if (cases.value.length > 0 && consultants.value.length === 0) {
+      caseMessage.value =
+        'Cases loaded, but no Faculty Consultant list was returned. You can enter a consultant ID manually.'
+      isCaseError.value = false
+    }
+  } catch {
+    consultants.value = []
   } finally {
     isLoading.value = false
   }
+}
+
+function openStudentRecord(studentId?: string | null): void {
+  const id = String(studentId || '').trim()
+  if (!id) return
+  router.push({
+    path: `/student-detail/${encodeURIComponent(id)}`,
+    query: { source: 'case' },
+  })
 }
 
 async function loadConsultantsSafely(): Promise<ConsultantOption[]> {
@@ -326,6 +346,10 @@ function buildCaseErrorMessage(error: any): string {
 
   if (message.includes('403') || message.toLowerCase().includes('permission')) {
     return 'Authorization warning: You do not have permission to view coordinator cases.'
+  }
+
+  if (message.toLowerCase().includes('failed to fetch')) {
+    return 'Network error: unable to reach backend. Please confirm the dev server is running and the backend proxy is available.'
   }
 
   if (message.includes('404')) {
@@ -493,6 +517,17 @@ async function handleReject(item: CaseItem): Promise<void> {
 .meta {
   margin: 6px 0 0;
   color: #6b7280;
+}
+
+.student-link {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin-left: 4px;
+  color: #2563eb;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .description {

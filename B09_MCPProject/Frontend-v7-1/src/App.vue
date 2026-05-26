@@ -50,6 +50,7 @@
           <router-link to="/consultant/departments">Department Management</router-link>
           <router-link to="/consultant/groups">Group Management</router-link>
           <router-link to="/consultant/export-records">Export Records</router-link>
+          <router-link to="/consultant/search-log">View Student Log Info</router-link>
           <router-link to="/communication">Communicate</router-link>
           <router-link to="/feedback">Give Feedback</router-link>
         </template>

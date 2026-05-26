@@ -70,6 +70,7 @@ const cards: DashboardCard[] = [
   { title: 'Department Management', description: 'Browse departments and manage their coordinators.', path: '/consultant/departments', linkText: 'Open', roles: ['consultant'] },
   { title: 'Group Management', description: 'Browse mentoring groups and manage members.', path: '/consultant/groups', linkText: 'Open', roles: ['consultant'] },
   { title: 'Export Records', description: 'Export interview records by academic year / department / mentor / student.', path: '/consultant/export-records', linkText: 'Open', roles: ['consultant'] },
+  { title: 'View Student Log Info', description: 'Search activity logs for students in your faculty scope.', path: '/consultant/search-log', linkText: 'Open', roles: ['consultant'] },
 
   // -------------------- Administrator (1E) --------------------
   { title: 'Faculty Consultant Management', description: 'Add, change, or delete faculty consultants.', path: '/admin/consultants', linkText: 'Open', roles: ['admin'] },
