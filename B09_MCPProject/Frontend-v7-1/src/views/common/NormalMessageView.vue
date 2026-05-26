@@ -1,1059 +1,465 @@
 <template>
-  <div class="message-page">
+  <div class="page">
     <header class="page-header">
       <div>
-        <p class="eyebrow">Communication</p>
         <h1>Normal Message</h1>
-        <p class="subtitle">Send and receive normal text messages.</p>
+        <p>
+          Send messages according to your role permission.
+          Current role: <strong>{{ roleLabel }}</strong>
+        </p>
       </div>
 
-      <div class="header-actions">
-        <span class="unread-pill">{{ unreadCount }} unread</span>
-        <button class="secondary" type="button" @click="goHome">Home</button>
-      </div>
+      <button class="secondary-btn" type="button" :disabled="isLoading" @click="loadPageData">
+        Refresh
+      </button>
     </header>
 
-    <p v-if="notice" class="notice" :class="{ error: isError }">
+    <p v-if="notice" class="message" :class="{ error: isError }">
       {{ notice }}
     </p>
 
-    <section class="role-panel">
-      <div
-          v-for="item in scopeCards"
-          :key="item.role"
-          class="scope-card"
-          :class="{ active: currentRole === item.role }"
-      >
-        <span>{{ item.title }}</span>
-        <strong>{{ item.description }}</strong>
-      </div>
-    </section>
+    <section class="layout">
+      <form class="card" @submit.prevent="handleSend">
+        <h2>Send Message</h2>
 
-    <section class="chat-shell">
-      <aside class="chat-sidebar">
-        <div class="sidebar-block">
-          <h2>Send Message</h2>
+        <p class="hint">
+          Allowed receiver types:
+          <strong>{{ allowedReceiverText }}</strong>
+        </p>
 
-          <p class="scope-note">
-            {{ currentScopeText }}
-          </p>
-
-          <label for="receiverIds">Receiver IDs</label>
-          <input
-              id="receiverIds"
-              v-model.trim="manualReceiverIds"
-              autocomplete="off"
-              placeholder="e.g. test_stu_in_01, test_coord_01"
-          />
-
-          <div v-if="parsedReceiverIds.length" class="receiver-list">
-            <span
-                v-for="receiverId in parsedReceiverIds"
-                :key="receiverId"
-                class="receiver-chip"
-            >
-              {{ receiverId }}
-              <button type="button" @click="removeReceiver(receiverId)">×</button>
-            </span>
-          </div>
-
-          <p class="hint">
-            Multiple receiver IDs can be separated by comma, space, or semicolon.
-          </p>
-        </div>
-
-        <div class="sidebar-block">
-          <h2>Filter History</h2>
-
-          <label for="peerFilter">User ID</label>
-          <input
-              id="peerFilter"
-              v-model.trim="peerFilter"
-              placeholder="Filter by sender or receiver ID"
-          />
-
-          <label for="historyKeyword">Keyword</label>
-          <input
-              id="historyKeyword"
-              v-model.trim="historyKeyword"
-              placeholder="Search message content"
-          />
-
-          <button class="secondary full-width" type="button" @click="clearHistoryFilters">
-            Clear Filters
-          </button>
-        </div>
-
-        <div v-if="recentPeers.length" class="sidebar-block">
-          <h2>Recent Users</h2>
-
-          <div
-              v-for="peer in recentPeers"
-              :key="peer"
-              class="peer-row"
-          >
-            <button class="peer-main" type="button" @click="filterByPeer(peer)">
-              {{ peer }}
-            </button>
-
-            <button class="text-button" type="button" @click="appendReceiver(peer)">
-              Use
+        <label>
+          Search receiver
+          <div class="search-row">
+            <input
+              v-model="keyword"
+              type="text"
+              placeholder="Search by name, username, or student ID"
+              @keyup.enter.prevent="loadReceivers"
+            />
+            <button class="secondary-btn" type="button" :disabled="isLoadingReceivers" @click="loadReceivers">
+              Search
             </button>
           </div>
-        </div>
-      </aside>
+        </label>
 
-      <main class="chat-main">
-        <div class="chat-topbar">
-          <div>
-            <h2>{{ conversationTitle }}</h2>
-            <p>
-              {{ filteredMessages.length }}
-              message{{ filteredMessages.length === 1 ? '' : 's' }}
-            </p>
-          </div>
-
-          <button class="secondary" type="button" :disabled="loadingMessages" @click="loadAllHistory">
-            {{ loadingMessages ? 'Refreshing...' : 'Refresh' }}
-          </button>
-        </div>
-
-        <div class="history-window">
-          <div v-if="loadingMessages" class="empty-state">
-            Loading messages...
-          </div>
-
-          <div v-else-if="filteredMessages.length === 0" class="empty-state">
-            No messages yet.
-          </div>
-
-          <template v-else>
-            <article
-                v-for="msg in filteredMessages"
-                :key="msg.localKey"
-                class="bubble-row"
-                :class="{ mine: isMine(msg) }"
+        <label>
+          Receiver
+          <select v-model="selectedRecipientId" :disabled="isSending || receiverOptions.length === 0">
+            <option value="">Select one receiver</option>
+            <option
+              v-for="receiver in receiverOptions"
+              :key="receiver.id"
+              :value="receiver.id"
             >
-              <div class="bubble">
-                <div class="bubble-meta">
-                  <strong>{{ displaySender(msg) }}</strong>
-                  <span>{{ formatTime(msg.createTime || msg.timestamp || msg.createdAt) }}</span>
-                </div>
+              {{ formatReceiver(receiver) }}
+            </option>
+          </select>
+        </label>
 
-                <p>{{ msg.content || '-' }}</p>
-
-                <div class="bubble-extra">
-                  <span v-if="getSenderId(msg)">From: {{ getSenderId(msg) }}</span>
-                  <span v-if="getRecipientIds(msg).length">
-                    To: {{ getRecipientIds(msg).join(', ') }}
-                  </span>
-                </div>
-
-                <div v-if="getSenderId(msg)" class="bubble-actions">
-                  <button class="text-button" type="button" @click="copyText(getSenderId(msg))">
-                    Copy Sender ID
-                  </button>
-                </div>
-              </div>
-            </article>
-          </template>
-        </div>
-
-        <div class="composer">
-          <div class="composer-target">
-            <strong>Receivers:</strong>
-            <span v-if="parsedReceiverIds.length">{{ parsedReceiverIds.join(', ') }}</span>
-            <span v-else class="muted">No receiver selected</span>
-          </div>
-
+        <label>
+          Content
           <textarea
-              v-model="content"
-              rows="4"
-              maxlength="500"
-              placeholder="Type your message..."
-              @keydown.ctrl.enter.prevent="send"
-              @keydown.meta.enter.prevent="send"
+            v-model="content"
+            :maxlength="MAX_MESSAGE_LENGTH"
+            rows="7"
+            placeholder="Enter message content"
+            :disabled="isSending"
           />
+        </label>
 
-          <div class="composer-footer">
-            <span>{{ content.length }}/500</span>
+        <p class="counter">
+          {{ content.trim().length }} / {{ MAX_MESSAGE_LENGTH }}
+        </p>
 
-            <div class="composer-actions">
-              <button class="secondary" type="button" @click="resetMessage">
-                Reset Message
-              </button>
+        <button class="primary-btn" type="submit" :disabled="isSending">
+          {{ isSending ? 'Sending...' : 'Send' }}
+        </button>
+      </form>
 
-              <button type="button" :disabled="sending || !canSend" @click="send">
-                {{ sending ? 'Sending...' : 'Send' }}
-              </button>
-            </div>
-          </div>
+      <section class="card">
+        <div class="card-header">
+          <h2>My Messages</h2>
+          <button class="secondary-btn" type="button" :disabled="isLoadingMessages" @click="loadMessages">
+            Reload
+          </button>
         </div>
-      </main>
+
+        <div v-if="isLoadingMessages" class="empty-state">
+          Loading messages...
+        </div>
+
+        <div v-else-if="messages.length === 0" class="empty-state">
+          No messages.
+        </div>
+
+        <div v-else class="message-list">
+          <article v-for="message in messages" :key="message.messageId || message.id" class="message-item">
+            <div class="message-item-header">
+              <strong>From: {{ message.senderId || message.fromUserId || message.from || '-' }}</strong>
+              <span>{{ formatTime(message.createTime || message.createdAt || message.timestamp) }}</span>
+            </div>
+
+            <p>{{ message.content }}</p>
+
+            <small>
+              Status: {{ message.status || (message.read ? 'Read' : 'Unread') }}
+            </small>
+          </article>
+        </div>
+      </section>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import {
-  getUnreadMessageCount,
+  getAvailableReceivers,
   listMyMessages,
   sendNormalMessage,
+  type AvailableReceiver,
   type MessageEntity,
 } from '../../api/communication'
-import type { Role } from '../../types'
+import {
+  MAX_MESSAGE_LENGTH,
+  getAllowedRecipientTypesForRole,
+  getRecipientType,
+  getRecipientTypeLabel,
+  getRoleLabel,
+  validateMessageBeforeSend,
+} from '../../utils/communicationPolicy'
 
-type MessageForView = MessageEntity & {
-  localKey: string
-  senderName?: string
-  senderUsername?: string
-  fromUserName?: string
-  fromName?: string
-}
-
-type ScopeCard = {
-  role: Role
-  title: string
-  description: string
-}
-
-const router = useRouter()
-
-const messages = ref<MessageForView[]>([])
-const manualReceiverIds = ref('')
+const messages = ref<MessageEntity[]>([])
+const receiverOptions = ref<AvailableReceiver[]>([])
+const selectedRecipientId = ref('')
+const keyword = ref('')
 const content = ref('')
+
+const isLoading = ref(false)
+const isLoadingReceivers = ref(false)
+const isLoadingMessages = ref(false)
+const isSending = ref(false)
 const notice = ref('')
-
 const isError = ref(false)
-const loadingMessages = ref(false)
-const sending = ref(false)
 
-const unreadCount = ref(0)
-const historyKeyword = ref('')
-const peerFilter = ref('')
+const currentRole = computed(() => localStorage.getItem('role') || 'unknown')
+const roleLabel = computed(() => getRoleLabel(currentRole.value))
 
-const scopeCards: ScopeCard[] = [
-  {
-    role: 'student',
-    title: 'Student',
-    description: 'Communicate with assigned mentor',
-  },
-  {
-    role: 'mentor',
-    title: 'Mentor',
-    description: 'Communicate with students and MCP coordinator',
-  },
-  {
-    role: 'coordinator',
-    title: 'MCP Coordinator',
-    description: 'Communicate with mentors, students and faculty consultant',
-  },
-  {
-    role: 'consultant',
-    title: 'Faculty Consultant',
-    description: 'Communicate with coordinators and mentors',
-  },
-]
+const allowedReceiverText = computed(() => {
+  const allowedTypes = getAllowedRecipientTypesForRole(currentRole.value)
 
-const currentRole = computed<Role>(() => normalizeRole(localStorage.getItem('role') || 'student'))
-
-const currentScopeText = computed(() => {
-  switch (currentRole.value) {
-    case 'student':
-      return 'Students can send normal messages to their assigned mentor.'
-
-    case 'mentor':
-      return 'Mentors can send normal messages to students in their group and the MCP coordinator.'
-
-    case 'coordinator':
-      return 'MCP coordinators can communicate with mentors, students and faculty consultants.'
-
-    case 'consultant':
-      return 'Faculty consultants can communicate with coordinators and mentors.'
-
-    default:
-      return 'Normal messages are limited to related users.'
+  if (!allowedTypes.length) {
+    return 'None'
   }
+
+  return allowedTypes.map(getRecipientTypeLabel).join(', ')
 })
 
-const parsedReceiverIds = computed(() => parseReceiverIds(manualReceiverIds.value))
-
-const canSend = computed(() => {
-  return parsedReceiverIds.value.length > 0 && content.value.trim().length > 0
+onMounted(() => {
+  loadPageData()
 })
 
-const filteredMessages = computed(() => {
-  const keyword = historyKeyword.value.trim().toLowerCase()
-  const peer = peerFilter.value.trim().toLowerCase()
-
-  return messages.value.filter((msg) => {
-    const senderId = getSenderId(msg)
-    const recipientIds = getRecipientIds(msg)
-
-    const searchableText = [
-      senderId,
-      msg.senderName,
-      msg.senderUsername,
-      msg.fromUserName,
-      msg.fromName,
-      recipientIds.join(','),
-      msg.content,
-      msg.createTime,
-      msg.createdAt,
-      msg.timestamp,
-    ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-
-    const matchKeyword = !keyword || searchableText.includes(keyword)
-
-    const matchPeer =
-        !peer ||
-        senderId.toLowerCase().includes(peer) ||
-        recipientIds.some((id) => id.toLowerCase().includes(peer))
-
-    return matchKeyword && matchPeer
-  })
-})
-
-const recentPeers = computed(() => {
-  const currentIds = getCurrentUserIdentifiers()
-  const set = new Set<string>()
-
-  messages.value.forEach((msg) => {
-    const senderId = getSenderId(msg)
-
-    if (senderId && !currentIds.includes(senderId)) {
-      set.add(senderId)
-    }
-
-    getRecipientIds(msg).forEach((id) => {
-      if (id && !currentIds.includes(id)) {
-        set.add(id)
-      }
-    })
-  })
-
-  return Array.from(set).slice(0, 8)
-})
-
-const conversationTitle = computed(() => {
-  return peerFilter.value.trim() ? `Messages with ${peerFilter.value.trim()}` : 'All Messages'
-})
-
-onMounted(async () => {
-  await loadAllHistory()
-})
-
-async function loadAllHistory() {
-  await Promise.all([loadMessages(), loadUnreadCount()])
-}
-
-async function loadMessages() {
-  loadingMessages.value = true
+async function loadPageData(): Promise<void> {
+  isLoading.value = true
 
   try {
-    const remoteMessages = await listMyMessages()
-    messages.value = remoteMessages.map(toViewMessage).sort(sortByTime)
-  } catch (err: any) {
-    messages.value = []
-    showError(toFriendlyError(err, 'Failed to load messages.'))
+    await Promise.all([loadReceivers(), loadMessages()])
   } finally {
-    loadingMessages.value = false
+    isLoading.value = false
   }
 }
 
-async function loadUnreadCount() {
+async function loadReceivers(): Promise<void> {
+  isLoadingReceivers.value = true
+
   try {
-    unreadCount.value = await getUnreadMessageCount()
-  } catch {
-    unreadCount.value = 0
+    const list = await getAvailableReceivers(keyword.value)
+    receiverOptions.value = list
+    selectedRecipientId.value = ''
+
+    if (!list.length) {
+      showNotice(
+        'No available receivers found for your role. If this is unexpected, check backend receiver endpoints and role data.',
+        false,
+      )
+    }
+  } catch (error: any) {
+    receiverOptions.value = []
+    selectedRecipientId.value = ''
+    showNotice(`Failed to load receivers: ${error?.message || 'Unknown error'}`, true)
+  } finally {
+    isLoadingReceivers.value = false
   }
 }
 
-async function send() {
-  clearNotice()
-
-  const receiverIds = parsedReceiverIds.value
-  const messageContent = content.value.trim()
-
-  if (receiverIds.length === 0) {
-    showError('Please enter at least one receiver ID.')
-    return
-  }
-
-  if (!messageContent) {
-    showError('Please enter message content.')
-    return
-  }
-
-  sending.value = true
+async function loadMessages(): Promise<void> {
+  isLoadingMessages.value = true
 
   try {
-    await sendNormalMessage(receiverIds, messageContent)
+    messages.value = await listMyMessages()
+  } catch (error: any) {
+    messages.value = []
+    showNotice(`Failed to load messages: ${error?.message || 'Unknown error'}`, true)
+  } finally {
+    isLoadingMessages.value = false
+  }
+}
+
+async function handleSend(): Promise<void> {
+  notice.value = ''
+  isError.value = false
+
+  const selectedIds = selectedRecipientId.value ? [selectedRecipientId.value] : []
+
+  const validationMessage = validateMessageBeforeSend(
+    currentRole.value,
+    selectedIds,
+    content.value,
+    receiverOptions.value,
+  )
+
+  if (validationMessage) {
+    showNotice(validationMessage, true)
+    return
+  }
+
+  isSending.value = true
+
+  try {
+    await sendNormalMessage(selectedIds, content.value, receiverOptions.value)
 
     content.value = ''
-    showSuccess('Message sent successfully.')
-
-    await loadAllHistory()
-  } catch (err: any) {
-    showError(toFriendlySendError(err))
+    selectedRecipientId.value = ''
+    showNotice('Message sent successfully.', false)
+    await loadMessages()
+  } catch (error: any) {
+    showNotice(`Failed to send message: ${error?.message || 'Unknown error'}`, true)
   } finally {
-    sending.value = false
+    isSending.value = false
   }
 }
 
-function appendReceiver(receiverId: string) {
-  if (!receiverId) return
+function formatReceiver(receiver: AvailableReceiver): string {
+  const name = receiver.realName || receiver.name || receiver.username || receiver.id
+  const type = getRecipientType(receiver)
+  const label = getRecipientTypeLabel(type)
+  const extra = receiver.email ? `, ${receiver.email}` : ''
 
-  const current = parsedReceiverIds.value
-
-  if (!current.includes(receiverId)) {
-    manualReceiverIds.value = [...current, receiverId].join(', ')
-  }
+  return `${name} (${label}, ${receiver.id}${extra})`
 }
 
-function removeReceiver(receiverId: string) {
-  manualReceiverIds.value = parsedReceiverIds.value
-      .filter((id) => id !== receiverId)
-      .join(', ')
-}
-
-function filterByPeer(peerId: string) {
-  peerFilter.value = peerId
-}
-
-function resetMessage() {
-  content.value = ''
-  clearNotice()
-}
-
-function clearHistoryFilters() {
-  historyKeyword.value = ''
-  peerFilter.value = ''
-}
-
-function parseReceiverIds(value: string): string[] {
-  return Array.from(
-      new Set(
-          value
-              .split(/[,\s;，；]+/)
-              .map((item) => item.trim())
-              .filter(Boolean),
-      ),
-  )
-}
-
-function toViewMessage(item: MessageEntity): MessageForView {
-  const senderId = getSenderId(item)
-  const recipientKey = getRecipientIds(item).join('-')
-  const time = item.createTime || item.createdAt || item.timestamp || ''
-  const id = String(
-      item.id ||
-      item.messageId ||
-      `${senderId}-${recipientKey}-${time}-${item.content}`,
-  )
-
-  return {
-    ...item,
-    id,
-    messageId: String(item.messageId || id),
-    localKey: id,
-  }
-}
-
-function sortByTime(a: MessageForView, b: MessageForView) {
-  const aTime = timeValue(a.createTime || a.timestamp || a.createdAt)
-  const bTime = timeValue(b.createTime || b.timestamp || b.createdAt)
-
-  return aTime - bTime
-}
-
-function timeValue(value?: string): number {
-  if (!value) return 0
-
-  const date = new Date(value)
-  const time = date.getTime()
-
-  return Number.isNaN(time) ? 0 : time
-}
-
-function getSenderId(msg: MessageEntity): string {
-  return String(msg.senderId || msg.fromUserId || msg.from || '').trim()
-}
-
-function getRecipientIds(msg: MessageEntity): string[] {
-  const values = [
-    ...(msg.recipientIds || []),
-    ...(msg.receiverIds || []),
-    msg.recipientId,
-    msg.receiverId,
-    msg.toUserId,
-  ]
-
-  return Array.from(
-      new Set(
-          values
-              .map((value) => String(value || '').trim())
-              .filter(Boolean),
-      ),
-  )
-}
-
-function isMine(msg: MessageEntity): boolean {
-  const senderId = getSenderId(msg)
-
-  if (!senderId) return false
-
-  return getCurrentUserIdentifiers().includes(senderId)
-}
-
-function displaySender(msg: MessageForView): string {
-  if (isMine(msg)) return 'Me'
-
-  const raw = (msg.raw || {}) as Record<string, any>
-
-  return (
-      msg.senderName ||
-      msg.senderUsername ||
-      msg.fromUserName ||
-      msg.fromName ||
-      raw.senderName ||
-      raw.senderUsername ||
-      raw.fromUserName ||
-      raw.fromName ||
-      getSenderId(msg) ||
-      'Unknown sender'
-  )
-}
-
-function formatTime(value?: string): string {
+function formatTime(value?: string | null): string {
   if (!value) return '-'
 
   const date = new Date(value)
 
   if (Number.isNaN(date.getTime())) {
-    return value
+    return String(value)
   }
 
   return date.toLocaleString()
 }
 
-function normalizeRole(role: string): Role {
-  const value = role.toLowerCase()
-
-  if (
-      value === 'student' ||
-      value === 'mentor' ||
-      value === 'coordinator' ||
-      value === 'consultant' ||
-      value === 'admin' ||
-      value === 'support'
-  ) {
-    return value
-  }
-
-  return 'student'
-}
-
-function getCurrentUserIdentifiers(): string[] {
-  const result = new Set<string>()
-
-  try {
-    const raw = localStorage.getItem('userInfo')
-    const parsed = raw ? JSON.parse(raw) : {}
-
-    const candidates = [
-      parsed?.user?.id,
-      parsed?.user?.userId,
-      parsed?.user?.username,
-      parsed?.user?.account,
-      parsed?.id,
-      parsed?.userId,
-      parsed?.username,
-      parsed?.account,
-      localStorage.getItem('userId'),
-      localStorage.getItem('username'),
-    ]
-
-    candidates.forEach((value) => {
-      const text = String(value || '').trim()
-      if (text) result.add(text)
-    })
-  } catch {
-    const userId = String(localStorage.getItem('userId') || '').trim()
-    const username = String(localStorage.getItem('username') || '').trim()
-
-    if (userId) result.add(userId)
-    if (username) result.add(username)
-  }
-
-  return Array.from(result)
-}
-
-function toFriendlyError(err: any, fallback: string): string {
-  return String(err?.message || err || fallback)
-}
-
-function toFriendlySendError(err: any): string {
-  const text = String(err?.message || err || '')
-
-  if (/permission|forbidden|403|access/i.test(text)) {
-    return 'You are not allowed to send this message. Please check whether the receiver is related to your role.'
-  }
-
-  return text || 'Failed to send message.'
-}
-
-async function copyText(value: string) {
-  try {
-    await navigator.clipboard.writeText(value)
-    showSuccess('Copied.')
-  } catch {
-    showError('Failed to copy.')
-  }
-}
-
-function goHome() {
-  router.push('/main')
-}
-
-function clearNotice() {
-  notice.value = ''
-  isError.value = false
-}
-
-function showSuccess(text: string) {
-  notice.value = text
-  isError.value = false
-}
-
-function showError(text: string) {
-  notice.value = text
-  isError.value = true
+function showNotice(message: string, error: boolean): void {
+  notice.value = message
+  isError.value = error
 }
 </script>
 
 <style scoped>
-.message-page {
-  width: 100%;
-  max-width: 1180px;
+.page {
+  max-width: 1120px;
   margin: 0 auto;
-  padding: 8px 0 32px;
-  box-sizing: border-box;
+  padding: 32px 20px;
 }
 
 .page-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 18px;
+  gap: 16px;
+  margin-bottom: 24px;
 }
 
-.eyebrow {
-  margin: 0 0 6px;
-  color: #2563eb;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-h1 {
+.page-header h1 {
   margin: 0;
-  color: #111827;
-  font-size: 32px;
-  line-height: 1.2;
+  font-size: 28px;
+  color: #1f2937;
 }
 
-.subtitle {
-  margin: 10px 0 0;
+.page-header p {
+  margin: 8px 0 0;
   color: #6b7280;
-  font-size: 15px;
 }
 
-.header-actions,
-.composer-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.unread-pill {
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: #eff6ff;
-  color: #1d4ed8;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.notice {
-  margin: 0 0 16px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: #ecfdf5;
-  color: #047857;
-}
-
-.notice.error {
-  background: #fef2f2;
-  color: #dc2626;
-}
-
-.role-panel {
+.layout {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 18px;
+  grid-template-columns: minmax(0, 420px) minmax(0, 1fr);
+  gap: 20px;
 }
 
-.scope-card {
-  min-height: 76px;
-  padding: 14px;
-  border: 1px solid #e5e7eb;
-  border-radius: 14px;
-  background: #ffffff;
-  box-sizing: border-box;
-}
-
-.scope-card span {
-  display: block;
-  margin-bottom: 6px;
-  color: #111827;
-  font-weight: 700;
-}
-
-.scope-card strong {
-  color: #6b7280;
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 1.4;
-}
-
-.scope-card.active {
-  border-color: #2563eb;
-  background: #eff6ff;
-}
-
-.chat-shell {
-  display: grid;
-  grid-template-columns: 330px minmax(0, 1fr);
-  gap: 18px;
-  align-items: stretch;
-}
-
-.chat-sidebar,
-.chat-main {
+.card {
+  padding: 20px;
   border: 1px solid #e5e7eb;
   border-radius: 16px;
   background: #ffffff;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
 }
 
-.chat-sidebar {
-  padding: 16px;
-}
-
-.sidebar-block + .sidebar-block {
-  margin-top: 22px;
-  padding-top: 18px;
-  border-top: 1px solid #f3f4f6;
-}
-
-.sidebar-block h2,
-.chat-topbar h2 {
-  margin: 0 0 12px;
+.card h2 {
+  margin: 0 0 16px;
   color: #111827;
-  font-size: 18px;
+  font-size: 20px;
 }
 
-.scope-note,
-.hint {
-  margin: 0 0 14px;
-  color: #6b7280;
-  font-size: 13px;
-  line-height: 1.5;
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
 }
 
-.hint {
-  margin-top: 10px;
+.card-header h2 {
+  margin: 0;
 }
 
 label {
   display: block;
-  margin: 12px 0 7px;
+  margin-bottom: 16px;
   color: #374151;
-  font-weight: 700;
-  font-size: 13px;
-}
-
-input,
-textarea {
-  width: 100%;
-  border: 1px solid #d1d5db;
-  border-radius: 10px;
-  padding: 10px 11px;
-  color: #111827;
-  font-size: 14px;
-  box-sizing: border-box;
-  outline: none;
-}
-
-input:focus,
-textarea:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
-}
-
-.receiver-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.receiver-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 8px;
-  border-radius: 999px;
-  background: #eef2ff;
-  color: #3730a3;
-  font-size: 12px;
   font-weight: 600;
 }
 
-.receiver-chip button {
-  margin: 0;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: #3730a3;
-  cursor: pointer;
+input,
+select,
+textarea {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  color: #111827;
+  background: #ffffff;
 }
 
-.peer-row {
+textarea {
+  resize: vertical;
+}
+
+.search-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
   gap: 8px;
-  margin-top: 8px;
 }
 
-.peer-main {
-  border: 1px solid #d1d5db;
-  background: #f9fafb;
-  color: #374151;
-  border-radius: 9px;
-  padding: 8px 10px;
-  text-align: left;
+.primary-btn,
+.secondary-btn {
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 16px;
+  cursor: pointer;
+  font-weight: 700;
 }
 
-.full-width {
-  width: 100%;
-  margin-top: 14px;
+.primary-btn {
+  background: #2563eb;
+  color: white;
 }
 
-.chat-main {
-  display: flex;
-  min-height: 620px;
-  overflow: hidden;
-  flex-direction: column;
+.secondary-btn {
+  background: #e5e7eb;
+  color: #111827;
 }
 
-.chat-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 18px 20px;
-  border-bottom: 1px solid #e5e7eb;
+.primary-btn:disabled,
+.secondary-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
-.chat-topbar p {
-  margin: 0;
+.message {
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.message.error {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.hint {
+  margin: -4px 0 14px;
   color: #6b7280;
   font-size: 13px;
 }
 
-.history-window {
-  flex: 1;
-  min-height: 360px;
-  max-height: 520px;
-  overflow-y: auto;
-  padding: 20px;
-  background: linear-gradient(#f9fafb, #ffffff);
+.counter {
+  margin: -8px 0 14px;
+  text-align: right;
+  color: #6b7280;
+  font-size: 13px;
 }
 
 .empty-state {
-  display: flex;
-  min-height: 220px;
-  align-items: center;
-  justify-content: center;
-  border: 1px dashed #d1d5db;
-  border-radius: 12px;
+  padding: 36px 16px;
+  text-align: center;
   color: #6b7280;
-  background: #ffffff;
 }
 
-.bubble-row {
-  display: flex;
-  margin-bottom: 14px;
+.message-list {
+  display: grid;
+  gap: 14px;
 }
 
-.bubble-row.mine {
-  justify-content: flex-end;
-}
-
-.bubble {
-  max-width: min(680px, 82%);
-  padding: 13px 15px;
+.message-item {
+  padding: 16px;
   border: 1px solid #e5e7eb;
   border-radius: 14px;
-  background: #ffffff;
-}
-
-.bubble-row.mine .bubble {
-  border-color: #bfdbfe;
-  background: #eff6ff;
-}
-
-.bubble-meta {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 8px;
-  color: #4b5563;
-  font-size: 12px;
-}
-
-.bubble p {
-  margin: 0;
-  white-space: pre-wrap;
-  color: #111827;
-  line-height: 1.55;
-}
-
-.bubble-extra {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 8px;
-  color: #6b7280;
-  font-size: 12px;
-}
-
-.bubble-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 10px;
-}
-
-.text-button {
-  border: none;
-  background: transparent;
-  color: #2563eb;
-  padding: 0;
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.composer {
-  padding: 18px 20px;
-  border-top: 1px solid #e5e7eb;
-  background: #ffffff;
-}
-
-.composer-target {
-  margin-bottom: 10px;
-  color: #374151;
-  font-size: 13px;
-}
-
-.composer-target strong {
-  margin-right: 6px;
-}
-
-.muted {
-  color: #9ca3af;
-}
-
-.composer textarea {
-  resize: vertical;
-  min-height: 104px;
-}
-
-.composer-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  margin-top: 10px;
-  color: #6b7280;
-  font-size: 13px;
-}
-
-button {
-  border: none;
-  border-radius: 9px;
-  padding: 9px 14px;
-  background: #2563eb;
-  color: white;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-button.secondary {
-  border: 1px solid #d1d5db;
   background: #f9fafb;
+}
+
+.message-item-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
   color: #374151;
 }
 
-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
+.message-item-header span {
+  color: #6b7280;
+  font-size: 13px;
+  white-space: nowrap;
 }
 
-@media (max-width: 1024px) {
-  .role-panel {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+.message-item p {
+  margin: 12px 0;
+  color: #111827;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
 
-  .chat-shell {
+.message-item small {
+  color: #6b7280;
+}
+
+@media (max-width: 900px) {
+  .layout {
     grid-template-columns: 1fr;
   }
 
-  .chat-main {
-    min-height: 560px;
-  }
-}
-
-@media (max-width: 640px) {
-  .page-header,
-  .chat-topbar,
-  .composer-footer {
-    align-items: stretch;
+  .page-header {
     flex-direction: column;
   }
 
-  .role-panel {
+  .search-row {
     grid-template-columns: 1fr;
-  }
-
-  .peer-row {
-    grid-template-columns: 1fr;
-  }
-
-  .bubble {
-    max-width: 100%;
   }
 }
 </style>

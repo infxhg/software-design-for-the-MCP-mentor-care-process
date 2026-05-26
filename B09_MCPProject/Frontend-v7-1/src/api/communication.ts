@@ -53,13 +53,7 @@ export interface AvailableReceiver {
 }
 
 function unwrapData<T = unknown>(response: unknown): T {
-  const obj = response as any
-
-  if (obj && typeof obj === 'object' && 'code' in obj && 'data' in obj) {
-    return unwrap(obj) as T
-  }
-
-  return response as T
+  return unwrap(response as any) as T
 }
 
 function asArray(value: unknown): AnyRecord[] {
@@ -73,22 +67,30 @@ function asArray(value: unknown): AnyRecord[] {
   if (Array.isArray(obj.content)) return obj.content
   if (Array.isArray(obj.items)) return obj.items
   if (Array.isArray(obj.data)) return obj.data
-  if (Array.isArray(obj.mentors)) return obj.mentors
-  if (Array.isArray(obj.mentorList)) return obj.mentorList
-  if (Array.isArray(obj.mentorInfoList)) return obj.mentorInfoList
 
   return []
 }
 
+function buildKeywordParams(keyword: string): AnyRecord | undefined {
+  const q = keyword.trim()
+
+  if (!q) return undefined
+
+  return {
+    keyword: q,
+    username: q,
+    studentId: q,
+  }
+}
+
 function normalizeMessage(raw: AnyRecord): MessageEntity {
   const id = String(raw.id ?? raw.messageId ?? raw.msgId ?? '')
-
   const recipientIds =
-      raw.recipientIds ??
-      raw.receiverIds ??
-      (raw.recipientId ? [raw.recipientId] : undefined) ??
-      (raw.receiverId ? [raw.receiverId] : undefined) ??
-      (raw.toUserId ? [raw.toUserId] : undefined)
+    raw.recipientIds ??
+    raw.receiverIds ??
+    (raw.recipientId ? [raw.recipientId] : undefined) ??
+    (raw.receiverId ? [raw.receiverId] : undefined) ??
+    (raw.toUserId ? [raw.toUserId] : undefined)
 
   return {
     ...raw,
@@ -113,11 +115,11 @@ function normalizeMessage(raw: AnyRecord): MessageEntity {
 }
 
 function normalizeReceiver(
-    raw: AnyRecord | string,
-    fallbackRole?: RecipientType | string,
+  raw: AnyRecord | string | number,
+  fallbackRole?: RecipientType | string,
 ): AvailableReceiver | null {
-  if (typeof raw === 'string') {
-    const id = raw.trim()
+  if (typeof raw === 'string' || typeof raw === 'number') {
+    const id = String(raw).trim()
     if (!id) return null
 
     const role = normalizeRecipientType(fallbackRole)
@@ -134,13 +136,10 @@ function normalizeReceiver(
   }
 
   const id = String(
-      raw.userId ??
+    raw.userId ??
       raw.id ??
       raw.username ??
-      raw.account ??
       raw.mentorId ??
-      raw.mentorUserId ??
-      raw.mentorUsername ??
       raw.studentId ??
       raw.consultantId ??
       raw.coordinatorId ??
@@ -149,165 +148,21 @@ function normalizeReceiver(
 
   if (!id) return null
 
-  const role = normalizeRecipientType(raw.role ?? raw.userRole ?? raw.type ?? fallbackRole)
+  const role = normalizeRecipientType(raw.type ?? raw.role ?? raw.userRole ?? fallbackRole)
 
   return {
     id,
     userId: id,
-    username: raw.username ?? raw.account ?? raw.mentorUsername,
+    username: raw.username ?? raw.account,
     realName: raw.realName ?? raw.name ?? raw.mentorName ?? raw.studentName,
-    name:
-        raw.name ??
-        raw.realName ??
-        raw.mentorName ??
-        raw.studentName ??
-        raw.username ??
-        raw.account ??
-        raw.mentorUsername ??
-        id,
+    name: raw.name ?? raw.realName ?? raw.mentorName ?? raw.studentName ?? raw.username ?? id,
     role,
     type: role,
-    email: raw.email ?? raw.mentorEmail,
-    phone: raw.phone ?? raw.mentorPhone,
+    email: raw.email,
+    phone: raw.phone,
     departmentName: raw.departmentName ?? raw.department,
     raw,
   }
-}
-
-function normalizeFlatMentor(raw: AnyRecord): AnyRecord | null {
-  const mentorId = raw.mentorId ?? raw.mentorUserId ?? raw.mentorUsername
-  const mentorName = raw.mentorName ?? raw.mentorRealName
-  const mentorEmail = raw.mentorEmail
-  const mentorPhone = raw.mentorPhone
-
-  if (!mentorId && !mentorName && !mentorEmail && !mentorPhone) return null
-
-  return {
-    id: mentorId ?? raw.username ?? raw.id,
-    userId: mentorId ?? raw.username ?? raw.id,
-    username: raw.mentorUsername ?? mentorId,
-    realName: mentorName,
-    name: mentorName ?? raw.mentorUsername ?? mentorId,
-    email: mentorEmail,
-    phone: mentorPhone,
-    departmentName: raw.departmentName ?? raw.department,
-    role: 'mentor',
-    type: 'mentor',
-  }
-}
-
-function findMentorPayload(value: unknown, keyHint = '', depth = 0): AnyRecord | null {
-  if (depth > 5) return null
-
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const found = findMentorPayload(item, keyHint, depth + 1)
-      if (found) return found
-    }
-    return null
-  }
-
-  const obj = value as AnyRecord | null | undefined
-  if (!obj || typeof obj !== 'object') return null
-
-  const flatMentor = normalizeFlatMentor(obj)
-  if (flatMentor) return flatMentor
-
-  const hint = keyHint.toLowerCase()
-  const role = normalizeRecipientType(obj.role ?? obj.userRole ?? obj.type)
-
-  if (
-      role === 'mentor' ||
-      obj.mentorId ||
-      obj.mentorName ||
-      obj.mentorUsername ||
-      hint.includes('mentor')
-  ) {
-    const possible = normalizeReceiver(obj, 'mentor')
-    if (possible) return obj
-  }
-
-  const directKeys = [
-    'mentor',
-    'mentorInfo',
-    'assignedMentor',
-    'myMentor',
-    'currentMentor',
-    'mentorUser',
-    'mentorDTO',
-    'mentorVO',
-    'teacher',
-  ]
-
-  for (const key of directKeys) {
-    if (obj[key]) {
-      const found = findMentorPayload(obj[key], key, depth + 1)
-      if (found) return found
-    }
-  }
-
-  const arrayKeys = [
-    'mentors',
-    'mentorList',
-    'mentorInfoList',
-    'mentorInfos',
-    'teachers',
-    'list',
-    'records',
-    'items',
-    'content',
-  ]
-
-  for (const key of arrayKeys) {
-    if (obj[key]) {
-      const found = findMentorPayload(obj[key], key, depth + 1)
-      if (found) return found
-    }
-  }
-
-  for (const [key, child] of Object.entries(obj)) {
-    if (typeof child === 'object' && child !== null) {
-      const found = findMentorPayload(child, key, depth + 1)
-      if (found) return found
-    }
-  }
-
-  return null
-}
-
-async function getStudentMentorReceiver(): Promise<AvailableReceiver[]> {
-  const endpoints = [
-    '/api/mentoring/student/my-mentor',
-    '/api/mentoring/student/mentor',
-    '/api/mentoring/student/mentor-info',
-    '/api/mentoring/student/my-mentor-info',
-  ]
-
-  for (const endpoint of endpoints) {
-    try {
-      const response = await get(endpoint)
-      const data = unwrapData<unknown>(response)
-      const mentorPayload = findMentorPayload(data)
-
-      if (!mentorPayload) continue
-
-      const receiver = normalizeReceiver(mentorPayload, 'mentor')
-
-      if (receiver) {
-        return [
-          {
-            ...receiver,
-            role: 'mentor',
-            type: 'mentor',
-          },
-        ]
-      }
-    } catch {
-      // Try next possible endpoint.
-    }
-  }
-
-  return []
 }
 
 function uniqueReceivers(rows: Array<AvailableReceiver | null>): AvailableReceiver[] {
@@ -315,39 +170,51 @@ function uniqueReceivers(rows: Array<AvailableReceiver | null>): AvailableReceiv
 
   for (const row of rows) {
     if (!row?.id) continue
-    if (!map.has(row.id)) map.set(row.id, row)
+
+    const id = String(row.id).trim()
+    if (!id) continue
+
+    if (!map.has(id)) {
+      map.set(id, { ...row, id, userId: row.userId || id })
+      continue
+    }
+
+    const old = map.get(id)!
+
+    map.set(id, {
+      ...old,
+      ...row,
+      id,
+      userId: old.userId || row.userId || id,
+      username: old.username || row.username,
+      realName: old.realName || row.realName,
+      name: old.name || row.name,
+      role: old.role || row.role,
+      type: old.type || row.type,
+      email: old.email || row.email,
+      phone: old.phone || row.phone,
+      departmentName: old.departmentName || row.departmentName,
+    })
   }
 
   return [...map.values()]
 }
 
 async function tryGetArray(
-    path: string,
-    params?: AnyRecord,
-    fallbackRole?: RecipientType | string,
+  path: string,
+  params?: AnyRecord,
+  fallbackRole?: RecipientType | string,
 ): Promise<AvailableReceiver[]> {
   const response = await get(path, params)
   const data = unwrapData<unknown>(response)
 
   return asArray(data)
-      .map((row) => normalizeReceiver(row, fallbackRole))
-      .filter(Boolean) as AvailableReceiver[]
-}
-
-function buildKeywordParams(keyword: string): AnyRecord | undefined {
-  const q = keyword.trim()
-
-  if (!q) return undefined
-
-  return {
-    keyword: q,
-    username: q,
-    studentId: q,
-  }
+    .map((row) => normalizeReceiver(row, fallbackRole))
+    .filter((row): row is AvailableReceiver => Boolean(row))
 }
 
 function getCurrentRole(): string {
-  return normalizeFrontendRole(localStorage.getItem('role') || '')
+  return normalizeFrontendRole(localStorage.getItem('role'))
 }
 
 function getCurrentUserId(): string {
@@ -355,7 +222,7 @@ function getCurrentUserId(): string {
     const info = JSON.parse(localStorage.getItem('userInfo') || '{}')
 
     return String(
-        info.user?.id ??
+      info.user?.id ??
         info.user?.userId ??
         info.userId ??
         info.id ??
@@ -367,6 +234,105 @@ function getCurrentUserId(): string {
   }
 }
 
+async function getStudentMentorReceiver(): Promise<AvailableReceiver[]> {
+  const candidateUrls = [
+    '/api/mentoring/student/my-mentor',
+    '/api/mentoring/my-mentor',
+    '/api/student/my-mentor',
+  ]
+
+  let lastError: unknown = null
+
+  for (const url of candidateUrls) {
+    try {
+      const response = await get(url)
+      const data = unwrapData<unknown>(response)
+
+      const rows = asArray(data)
+      if (rows.length > 0) {
+        return uniqueReceivers(
+          rows.map((row) => normalizeReceiver(row, 'mentor')),
+        )
+      }
+
+      const receiver = normalizeReceiver(data as AnyRecord, 'mentor')
+      if (receiver) return [receiver]
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  if (lastError) throw lastError
+
+  return []
+}
+
+async function getMentorStudentReceivers(keyword: string): Promise<AvailableReceiver[]> {
+  const params = buildKeywordParams(keyword)
+  const candidateUrls = [
+    '/api/mentoring/records/students/search',
+    '/api/mentoring/students/search',
+    '/api/org/students/search',
+  ]
+
+  const result: AvailableReceiver[] = []
+
+  for (const url of candidateUrls) {
+    try {
+      result.push(...(await tryGetArray(url, params, 'student')))
+    } catch {
+      // Try next endpoint.
+    }
+  }
+
+  return uniqueReceivers(result)
+}
+
+async function getCoordinatorReceivers(keyword: string): Promise<AvailableReceiver[]> {
+  const keywordParams = buildKeywordParams(keyword)
+  const result: AvailableReceiver[] = []
+
+  const tasks: Array<Promise<AvailableReceiver[]>> = [
+    tryGetArray('/api/org/my-dept/mentors', keywordParams, 'mentor'),
+    tryGetArray('/api/org/students/search', keywordParams, 'student'),
+    tryGetArray('/api/user/admin/faculty-consultants', undefined, 'consultant'),
+  ]
+
+  const settled = await Promise.allSettled(tasks)
+
+  for (const item of settled) {
+    if (item.status === 'fulfilled') {
+      result.push(...item.value)
+    }
+  }
+
+  return uniqueReceivers(result)
+}
+
+async function getConsultantReceivers(keyword: string): Promise<AvailableReceiver[]> {
+  const keywordParams = buildKeywordParams(keyword)
+  const result: AvailableReceiver[] = []
+
+  const tasks: Array<Promise<AvailableReceiver[]>> = [
+    tryGetArray('/api/org/students/search', keywordParams, 'student'),
+    tryGetArray('/api/user/coordinators', keywordParams, 'coordinator'),
+    tryGetArray('/api/org/coordinators', keywordParams, 'coordinator'),
+  ]
+
+  const settled = await Promise.allSettled(tasks)
+
+  for (const item of settled) {
+    if (item.status === 'fulfilled') {
+      result.push(...item.value)
+    }
+  }
+
+  return uniqueReceivers(result)
+}
+
+/**
+ * GET /api/message/list
+ */
 export async function listMyMessages(): Promise<MessageEntity[]> {
   const response = await get('/api/message/list')
   const data = unwrapData<unknown>(response)
@@ -374,82 +340,59 @@ export async function listMyMessages(): Promise<MessageEntity[]> {
   return asArray(data).map(normalizeMessage)
 }
 
+/**
+ * The backend currently has no single unified "available receivers" endpoint in the uploaded code,
+ * so this function collects receiver options by role and only exposes allowed receiver types.
+ */
 export async function getAvailableReceivers(keyword = ''): Promise<AvailableReceiver[]> {
   const role = getCurrentRole()
-  const q = keyword.trim()
-
-  if (role === 'student') {
-    return getStudentMentorReceiver()
-  }
-
-  if (role === 'admin' || role === 'support' || role === 'unknown' || !role) {
-    return []
-  }
-
-  const tasks: Array<() => Promise<AvailableReceiver[]>> = []
-
-  if (role === 'mentor') {
-    tasks.push(() =>
-        tryGetArray('/api/mentoring/records/students/search', buildKeywordParams(q), 'student'),
-    )
-    tasks.push(() => tryGetArray('/api/org/students/search', buildKeywordParams(q), 'student'))
-  }
-
-  if (role === 'coordinator') {
-    tasks.push(() => tryGetArray('/api/org/my-dept/mentors', buildKeywordParams(q), 'mentor'))
-    tasks.push(() => tryGetArray('/api/org/students/search', buildKeywordParams(q), 'student'))
-    tasks.push(() => tryGetArray('/api/user/admin/faculty-consultants', undefined, 'consultant'))
-  }
-
-  if (role === 'consultant') {
-    tasks.push(() => tryGetArray('/api/org/students/search', buildKeywordParams(q), 'student'))
-    tasks.push(() => tryGetArray('/api/org/coordinators/search', buildKeywordParams(q), 'coordinator'))
-    tasks.push(() => tryGetArray('/api/user/coordinators', buildKeywordParams(q), 'coordinator'))
-  }
-
-  const results: AvailableReceiver[] = []
-  const errors: unknown[] = []
-
-  for (const task of tasks) {
-    try {
-      results.push(...(await task()))
-    } catch (error) {
-      errors.push(error)
-    }
-  }
-
   const currentUserId = getCurrentUserId()
 
-  const receivers = uniqueReceivers(results).filter(
-      (receiver) => receiver.id !== currentUserId && receiver.userId !== currentUserId,
-  )
+  let receivers: AvailableReceiver[] = []
 
-  if (!receivers.length && tasks.length > 0 && errors.length === tasks.length) {
-    throw new Error('Failed to load available receivers from backend.')
+  if (role === 'student') {
+    receivers = await getStudentMentorReceiver()
+  } else if (role === 'mentor') {
+    receivers = await getMentorStudentReceivers(keyword)
+  } else if (role === 'coordinator') {
+    receivers = await getCoordinatorReceivers(keyword)
+  } else if (role === 'consultant') {
+    receivers = await getConsultantReceivers(keyword)
+  } else {
+    receivers = []
   }
 
-  return receivers
+  return uniqueReceivers(receivers).filter((receiver) => {
+    if (!receiver.id) return false
+    if (currentUserId && receiver.id === currentUserId) return false
+
+    return true
+  })
 }
 
+/**
+ * POST /api/message/send
+ */
 export async function sendNormalMessage(
-    recipientIds: string | string[],
-    content: string,
-    availableReceivers?: AvailableReceiver[],
+  recipientIds: string | string[],
+  content: string,
+  availableReceivers?: AvailableReceiver[],
 ): Promise<unknown> {
   const ids = Array.isArray(recipientIds) ? recipientIds : [recipientIds]
 
-  const cleanedIds = Array.from(new Set(ids.map((id) => String(id).trim()).filter(Boolean)))
+  const cleanedIds = Array.from(
+    new Set(ids.map((id) => String(id).trim()).filter(Boolean)),
+  )
 
   const trimmedContent = content.trim()
-
-  const receivers = availableReceivers ?? (await getAvailableReceivers(''))
+  const receivers = availableReceivers || (await getAvailableReceivers(''))
   const role = getCurrentRole()
 
   const validationMessage = validateMessageBeforeSend(
-      role,
-      cleanedIds,
-      trimmedContent,
-      receivers,
+    role,
+    cleanedIds,
+    trimmedContent,
+    receivers,
   )
 
   if (validationMessage) {
@@ -466,16 +409,19 @@ export async function sendNormalMessage(
 
 export async function sendMessage(payload: SendMessagePayload): Promise<unknown> {
   const recipientIds =
-      payload.recipientIds ??
-      payload.receiverIds ??
-      (payload.recipientId ? [payload.recipientId] : undefined) ??
-      (payload.receiverId ? [payload.receiverId] : undefined) ??
-      (payload.toUserId ? [payload.toUserId] : undefined) ??
-      []
+    payload.recipientIds ??
+    payload.receiverIds ??
+    (payload.recipientId ? [payload.recipientId] : undefined) ??
+    (payload.receiverId ? [payload.receiverId] : undefined) ??
+    (payload.toUserId ? [payload.toUserId] : undefined) ??
+    []
 
   return sendNormalMessage(recipientIds, payload.content, payload.availableReceivers)
 }
 
+/**
+ * GET /api/message/unread-count
+ */
 export async function getUnreadMessageCount(): Promise<number> {
   const response = await get('/api/message/unread-count')
   const data = unwrapData<unknown>(response)
@@ -484,6 +430,9 @@ export async function getUnreadMessageCount(): Promise<number> {
   return Number.isFinite(count) ? count : 0
 }
 
+/**
+ * GET /api/message/{messageId}
+ */
 export async function getMessageDetail(messageId: string | number): Promise<MessageEntity> {
   const id = String(messageId).trim()
 
@@ -497,18 +446,21 @@ export async function getMessageDetail(messageId: string | number): Promise<Mess
   return normalizeMessage(data)
 }
 
+/**
+ * Current API marks a message as read by opening its detail.
+ */
 export async function markMessageRead(messageId: string | number): Promise<MessageEntity> {
   return getMessageDetail(messageId)
 }
 
 export async function replyMessage(
-    original: MessageEntity | string | number,
-    content: string,
+  original: MessageEntity | string | number,
+  content: string,
 ): Promise<unknown> {
   const target =
-      typeof original === 'object'
-          ? original.senderId ?? original.fromUserId ?? original.from
-          : String(original)
+    typeof original === 'object'
+      ? original.senderId ?? original.fromUserId ?? original.from
+      : String(original)
 
   if (!target) {
     throw new Error('Cannot determine message sender to reply to.')

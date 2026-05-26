@@ -1,20 +1,20 @@
 export type AppRole =
-    | 'student'
-    | 'mentor'
-    | 'coordinator'
-    | 'consultant'
-    | 'admin'
-    | 'support'
-    | 'unknown'
+  | 'student'
+  | 'mentor'
+  | 'coordinator'
+  | 'consultant'
+  | 'admin'
+  | 'support'
+  | 'unknown'
 
 export type RecipientType =
-    | 'student'
-    | 'mentor'
-    | 'coordinator'
-    | 'consultant'
-    | 'admin'
-    | 'support'
-    | 'unknown'
+  | 'student'
+  | 'mentor'
+  | 'coordinator'
+  | 'consultant'
+  | 'admin'
+  | 'support'
+  | 'unknown'
 
 export interface RecipientOption {
   id: string
@@ -45,28 +45,28 @@ const ALLOWED_RECIPIENTS: Record<AppRole, RecipientType[]> = {
 
 export function normalizeFrontendRole(value: unknown): AppRole {
   const role = String(value || '')
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, '_')
-      .replace(/-/g, '_')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/-/g, '_')
 
   if (role === 'student') return 'student'
   if (role === 'mentor') return 'mentor'
 
   if (
-      role === 'coordinator' ||
-      role === 'mcp_coordinator' ||
-      role === 'mcpcoordinator' ||
-      role === 'department_coordinator'
+    role === 'coordinator' ||
+    role === 'mcp_coordinator' ||
+    role === 'mcpcoordinator' ||
+    role === 'department_coordinator'
   ) {
     return 'coordinator'
   }
 
   if (
-      role === 'consultant' ||
-      role === 'faculty_consultant' ||
-      role === 'facultyconsultant' ||
-      role === 'fc'
+    role === 'consultant' ||
+    role === 'faculty_consultant' ||
+    role === 'facultyconsultant' ||
+    role === 'fc'
   ) {
     return 'consultant'
   }
@@ -74,10 +74,10 @@ export function normalizeFrontendRole(value: unknown): AppRole {
   if (role === 'admin' || role === 'administrator') return 'admin'
 
   if (
-      role === 'support' ||
-      role === 'support_staff' ||
-      role === 'supporting_staff' ||
-      role === 'staff'
+    role === 'support' ||
+    role === 'support_staff' ||
+    role === 'supporting_staff' ||
+    role === 'staff'
   ) {
     return 'support'
   }
@@ -87,28 +87,28 @@ export function normalizeFrontendRole(value: unknown): AppRole {
 
 export function normalizeRecipientType(value: unknown): RecipientType {
   const type = String(value || '')
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, '_')
-      .replace(/-/g, '_')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/-/g, '_')
 
   if (type === 'student') return 'student'
   if (type === 'mentor') return 'mentor'
 
   if (
-      type === 'coordinator' ||
-      type === 'mcp_coordinator' ||
-      type === 'mcpcoordinator' ||
-      type === 'department_coordinator'
+    type === 'coordinator' ||
+    type === 'mcp_coordinator' ||
+    type === 'mcpcoordinator' ||
+    type === 'department_coordinator'
   ) {
     return 'coordinator'
   }
 
   if (
-      type === 'consultant' ||
-      type === 'faculty_consultant' ||
-      type === 'facultyconsultant' ||
-      type === 'fc'
+    type === 'consultant' ||
+    type === 'faculty_consultant' ||
+    type === 'facultyconsultant' ||
+    type === 'fc'
   ) {
     return 'consultant'
   }
@@ -116,10 +116,10 @@ export function normalizeRecipientType(value: unknown): RecipientType {
   if (type === 'admin' || type === 'administrator') return 'admin'
 
   if (
-      type === 'support' ||
-      type === 'support_staff' ||
-      type === 'supporting_staff' ||
-      type === 'staff'
+    type === 'support' ||
+    type === 'support_staff' ||
+    type === 'supporting_staff' ||
+    type === 'staff'
   ) {
     return 'support'
   }
@@ -173,7 +173,7 @@ export function getRecipientTypeLabel(typeInput: unknown): string {
 
 export function getRecipientType(receiver: RecipientOption): RecipientType {
   return normalizeRecipientType(
-      receiver.type ||
+    receiver.type ||
       receiver.role ||
       receiver.userRole ||
       receiver.raw?.type ||
@@ -187,10 +187,10 @@ export function hasUnsafeMessageContent(content: string): boolean {
 }
 
 export function validateMessageBeforeSend(
-    roleInput: unknown,
-    selectedRecipientIds: string[],
-    content: string,
-    allRecipients: RecipientOption[],
+  roleInput: unknown,
+  selectedRecipientIds: string[],
+  content: string,
+  allRecipients: RecipientOption[],
 ): string {
   const role = normalizeFrontendRole(roleInput)
   const allowedTypes = getAllowedRecipientTypesForRole(role)
@@ -200,7 +200,11 @@ export function validateMessageBeforeSend(
     return 'Authorization warning: Your role cannot send messages.'
   }
 
-  if (!selectedRecipientIds.length) {
+  const uniqueIds = Array.from(
+    new Set(selectedRecipientIds.map((id) => String(id).trim()).filter(Boolean)),
+  )
+
+  if (uniqueIds.length === 0) {
     return 'Warning: Please select at least one recipient.'
   }
 
@@ -216,11 +220,7 @@ export function validateMessageBeforeSend(
     return 'Warning: Message content contains unsafe HTML or script.'
   }
 
-  const uniqueIds = Array.from(
-      new Set(selectedRecipientIds.map((id) => String(id).trim()).filter(Boolean)),
-  )
-
-  if (uniqueIds.length !== selectedRecipientIds.length) {
+  if (uniqueIds.length !== selectedRecipientIds.map((id) => String(id).trim()).filter(Boolean).length) {
     return 'Warning: Duplicate recipients are not allowed.'
   }
 
@@ -228,7 +228,9 @@ export function validateMessageBeforeSend(
 
   for (const receiver of allRecipients) {
     const id = String(receiver.id || receiver.userId || '').trim()
-    if (id) recipientMap.set(id, receiver)
+    if (id) {
+      recipientMap.set(id, receiver)
+    }
   }
 
   for (const id of uniqueIds) {
@@ -242,7 +244,7 @@ export function validateMessageBeforeSend(
 
     if (!canRoleSendTo(role, recipientType)) {
       return `Authorization warning: ${getRoleLabel(role)} cannot send messages to ${getRecipientTypeLabel(
-          recipientType,
+        recipientType,
       )}.`
     }
   }

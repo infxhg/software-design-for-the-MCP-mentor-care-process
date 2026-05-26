@@ -1,34 +1,44 @@
 <template>
-  <div class="page-card">
-    <div class="header">
-      <div>
-        <h1>Search Student Log</h1>
-        <p class="desc">Please enter ID or Name to access caring logs.</p>
-      </div>
-      <button class="secondary" type="button" @click="goHome">Home</button>
-    </div>
-
-    <div class="form">
-      <div class="form-item">
-        <label for="log-query">Enter ID or Name</label>
-        <div class="search-row">
-          <input
-            id="log-query"
-            v-model="query"
-            type="text"
-            placeholder="e.g. 123456789 or Bnbuer"
-            :disabled="isLoading"
-            @keyup.enter="search"
-          />
-          <button class="primary" type="button" :disabled="isLoading" @click="search">
-            {{ isLoading ? 'Searching...' : 'Search' }}
-          </button>
+  <div class="page">
+    <section class="card">
+      <div class="top-row">
+        <div>
+          <h1>Search Student Log</h1>
+          <p>Please enter ID or Name to access caring logs.</p>
         </div>
+
+        <button class="secondary-btn" type="button" @click="goHome">
+          Home
+        </button>
       </div>
 
-      <p v-if="message" class="message" :class="{ error: isError }">{{ message }}</p>
+      <form class="search-form" @submit.prevent="handleSearch">
+        <label>
+          Enter ID or Name
+          <div class="search-row">
+            <input
+                v-model="keyword"
+                type="text"
+                placeholder="Enter user ID, username, or name"
+                autocomplete="off"
+            />
 
-      <table v-if="results.length > 0">
+            <button class="primary-btn" type="submit" :disabled="isLoading">
+              Search
+            </button>
+          </div>
+        </label>
+      </form>
+
+      <p v-if="message" class="message" :class="{ error: isError }">
+        {{ message }}
+      </p>
+
+      <div v-if="isLoading" class="empty-state">
+        Searching logs...
+      </div>
+
+      <table v-else-if="results.length > 0" class="result-table">
         <thead>
         <tr>
           <th>Student ID</th>
@@ -38,98 +48,51 @@
           <th>Action</th>
         </tr>
         </thead>
+
         <tbody>
-        <tr v-for="r in results" :key="r.key">
-          <td>{{ r.userId }}</td>
-          <td>{{ r.name }}</td>
-          <td>{{ r.role }}</td>
-          <td>{{ r.logCount }}</td>
+        <tr v-for="item in results" :key="`${item.userId}-${item.username}`">
+          <td>{{ item.userId || '-' }}</td>
+          <td>{{ item.name || item.username || '-' }}</td>
+          <td>{{ item.role || '-' }}</td>
+          <td>{{ item.matchedLogs }}</td>
           <td>
-            <button class="link-btn" type="button" @click="viewLog(r.userId)">View Log</button>
+            <button class="link-btn" type="button" @click="viewLog(item)">
+              View Log
+            </button>
           </td>
         </tr>
         </tbody>
       </table>
 
-      <div class="buttons">
-        <button class="secondary" type="button" @click="goBack">Back</button>
-      </div>
-    </div>
+      <button class="secondary-btn back-btn" type="button" @click="goBack">
+        Back
+      </button>
+    </section>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { searchLogs, type OperationLog } from '../../api/support'
+import { searchLogUsers, type LogUserSearchResult } from '../../api/support'
 
 const router = useRouter()
 
-type SearchResult = {
-  key: string
-  userId: string
-  name: string
-  role: string
-  logCount: number
-}
-
-const query = ref('')
-const results = ref<SearchResult[]>([])
+const keyword = ref('')
+const results = ref<LogUserSearchResult[]>([])
+const isLoading = ref(false)
 const message = ref('')
 const isError = ref(false)
-const isLoading = ref(false)
 
-function text(value: unknown): string {
-  return String(value ?? '').trim()
-}
+async function handleSearch(): Promise<void> {
+  const q = keyword.value.trim()
 
-function userIdOf(log: OperationLog): string {
-  return text(log.userId || log.username || log.userName || log.name || log.id)
-}
-
-function nameOf(log: OperationLog): string {
-  return text(log.realName || log.name || log.username || log.userName || log.userId) || '-'
-}
-
-function roleOf(log: OperationLog): string {
-  return text(log.role) || '-'
-}
-
-function buildResults(logs: OperationLog[]): SearchResult[] {
-  const map = new Map<string, SearchResult>()
-
-  for (const log of logs) {
-    const userId = userIdOf(log)
-    if (!userId) continue
-
-    const existing = map.get(userId)
-    if (existing) {
-      existing.logCount += 1
-      if (existing.name === '-' && nameOf(log) !== '-') existing.name = nameOf(log)
-      if (existing.role === '-' && roleOf(log) !== '-') existing.role = roleOf(log)
-      continue
-    }
-
-    map.set(userId, {
-      key: userId,
-      userId,
-      name: nameOf(log),
-      role: roleOf(log),
-      logCount: 1,
-    })
-  }
-
-  return Array.from(map.values())
-}
-
-async function search() {
   message.value = ''
   isError.value = false
   results.value = []
 
-  const q = query.value.trim()
   if (!q) {
-    message.value = 'Warning: Please enter an ID or name.'
+    message.value = 'Please enter ID or Name.'
     isError.value = true
     return
   }
@@ -137,137 +100,190 @@ async function search() {
   isLoading.value = true
 
   try {
-    const logs = await searchLogs({ query: q, userId: q, username: q })
-    results.value = buildResults(logs)
+    // 修复点: 只传 query，避免后端因为 userId 和 username 同时存在而触发强制 AND 查询
+    const list = await searchLogUsers({
+      query: q
+    })
 
-    if (results.value.length === 0) {
-      message.value = 'No matching log found.'
-      isError.value = true
+    results.value = list
+
+    if (list.length === 0) {
+      message.value = 'No matching user or logs found.'
+      isError.value = false
     }
-  } catch (err) {
-    console.error('[support log] failed to search logs:', err)
-    message.value = err instanceof Error ? err.message || 'Search failed.' : 'Search failed.'
+  } catch (error: any) {
+    results.value = []
+    message.value = `Failed to search logs: ${error?.message || 'Unknown error'}`
     isError.value = true
   } finally {
     isLoading.value = false
   }
 }
 
-function viewLog(userId: string) {
-  router.push(`/support/log/${encodeURIComponent(userId)}`)
+function viewLog(item: LogUserSearchResult): void {
+  // 修复点: 修正了路由跳转地址，匹配 index.ts 中配置的 `/support/log/:userId`
+  const targetId = item.userId || item.username || item.logSearchKey || 'unknown'
+
+  router.push({
+    path: `/support/log/${encodeURIComponent(targetId)}`,
+    query: {
+      username: item.username,
+      name: item.name,
+      role: item.role,
+      key: item.logSearchKey,
+    },
+  })
 }
 
-function goBack() {
-  router.back()
-}
-
-function goHome() {
+function goHome(): void {
   router.push('/main')
+}
+
+function goBack(): void {
+  router.back()
 }
 </script>
 
 <style scoped>
-.header {
+.page {
+  padding: 24px;
+}
+
+.card {
+  min-height: 280px;
+  padding: 28px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.top-row {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
-  align-items: center;
+  gap: 16px;
 }
 
-.form {
-  max-width: 760px;
-  margin-top: 22px;
+h1 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 30px;
 }
 
-.form-item {
-  margin-top: 16px;
+p {
+  margin: 14px 0 0;
+  color: #64748b;
+}
+
+.search-form {
+  margin-top: 28px;
 }
 
 label {
-  display: block;
-  margin-bottom: 8px;
-  font-weight: 600;
+  display: grid;
+  gap: 8px;
+  color: #111827;
+  font-weight: 700;
 }
 
 .search-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(260px, 640px) auto;
   gap: 10px;
+  align-items: center;
 }
 
-.search-row input {
-  flex: 1;
-  padding: 10px;
+input {
+  height: 38px;
   box-sizing: border-box;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
+  padding: 8px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  font: inherit;
 }
 
 button {
-  border: none;
-  border-radius: 6px;
-  padding: 8px 16px;
-  color: white;
-  font-weight: 600;
+  min-height: 36px;
+  padding: 8px 18px;
+  border: 0;
+  border-radius: 5px;
+  font-weight: 700;
   cursor: pointer;
 }
 
 button:disabled {
-  opacity: 0.65;
   cursor: not-allowed;
+  opacity: 0.6;
 }
 
-.primary {
+.primary-btn {
   background: #2563eb;
+  color: #ffffff;
 }
 
-.primary:hover:not(:disabled) {
-  background: #1d4ed8;
-}
-
-.secondary {
+.secondary-btn {
   background: #6b7280;
+  color: #ffffff;
 }
 
-.secondary:hover:not(:disabled) {
-  background: #4b5563;
+.back-btn {
+  margin-top: 16px;
 }
 
-table {
-  width: 100%;
-  border-collapse: collapse;
+.link-btn {
+  min-height: auto;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+.message {
+  margin: 14px 0 0;
+  color: #047857;
+}
+
+.message.error {
+  color: #dc2626;
+}
+
+.empty-state {
   margin-top: 18px;
+  color: #64748b;
 }
 
-th,
-td {
+.result-table {
+  width: 720px;
+  max-width: 100%;
+  margin-top: 18px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.result-table th,
+.result-table td {
   padding: 10px;
   border: 1px solid #e5e7eb;
   text-align: left;
 }
 
-th {
+.result-table th {
   background: #f3f4f6;
+  color: #111827;
 }
 
-.link-btn {
-  background: transparent;
-  color: #2563eb;
-  border: none;
-  cursor: pointer;
-  font-weight: 600;
-  text-decoration: underline;
-  padding: 0;
-}
+@media (max-width: 760px) {
+  .top-row {
+    flex-direction: column;
+  }
 
-.buttons {
-  margin-top: 18px;
-}
+  .search-row {
+    grid-template-columns: 1fr;
+  }
 
-.message {
-  margin-top: 14px;
-  color: #047857;
-}
-
-.error {
-  color: #dc2626;
+  .result-table {
+    width: 100%;
+  }
 }
 </style>

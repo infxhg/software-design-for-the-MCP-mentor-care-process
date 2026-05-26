@@ -198,7 +198,7 @@ function roleValueToText(value: unknown): string {
   if (typeof value === 'object') {
     const raw = value as AnyRecord
     return String(
-      raw.roleCode ??
+        raw.roleCode ??
         raw.role_code ??
         raw.code ??
         raw.roleName ??
@@ -218,9 +218,9 @@ function roleValueToText(value: unknown): string {
 export function mapBackendRole(roles?: unknown): FrontendRole {
   const list = Array.isArray(roles) ? roles : roles ? [roles] : []
   const normalized = list
-    .flatMap((item) => roleValueToText(item).split(/[\s,;|]+/))
-    .map((r) => r.trim().toUpperCase())
-    .filter(Boolean)
+      .flatMap((item) => roleValueToText(item).split(/[\s,;|]+/))
+      .map((r) => r.trim().toUpperCase())
+      .filter(Boolean)
 
   if (normalized.some((r) => r.includes('ADMIN'))) return 'admin'
   if (normalized.some((r) => r.includes('SUPPORT'))) return 'support'
@@ -280,6 +280,55 @@ function clearLoginStateBeforeLogin(): void {
   localStorage.removeItem('userId')
 }
 
+function isEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+}
+
+function uniquePayloads(payloads: AnyRecord[]): AnyRecord[] {
+  const seen = new Set<string>()
+  const result: AnyRecord[] = []
+
+  for (const payload of payloads) {
+    const key = JSON.stringify(payload)
+    if (!seen.has(key)) {
+      seen.add(key)
+      result.push(payload)
+    }
+  }
+
+  return result
+}
+
+function buildLoginPayloads(account: string, password: string): AnyRecord[] {
+  const commonPayloads: AnyRecord[] = [
+    { username: account, password },
+    { account, password },
+    { loginName: account, password },
+    { identifier: account, password },
+    { principal: account, password },
+    { user: account, password },
+
+    // 关键修复：学生真实 id 是数字时，登录不要只依赖 userId。
+    // 系统要求学生用姓名或邮箱登录，所以这里显式支持 name / realName / email。
+    { name: account, password },
+    { realName: account, password },
+    { email: account, password },
+  ]
+
+  if (isEmail(account)) {
+    return uniquePayloads([
+      { email: account, password },
+      { username: account, password },
+      { account, password },
+      { loginName: account, password },
+      { identifier: account, password },
+      ...commonPayloads,
+    ])
+  }
+
+  return uniquePayloads(commonPayloads)
+}
+
 export async function loginApi(account: string, password: string): Promise<string> {
   const trimmedAccount = account.trim()
 
@@ -289,64 +338,77 @@ export async function loginApi(account: string, password: string): Promise<strin
 
   clearLoginStateBeforeLogin()
 
-  const apiGet = get as unknown as (
-    url: string,
-    params?: AnyRecord,
-    options?: AnyRecord,
-  ) => Promise<unknown>
   const apiPost = post as unknown as (
-    url: string,
-    body?: AnyRecord,
-    options?: AnyRecord,
+      url: string,
+      body?: AnyRecord,
+      options?: AnyRecord,
+  ) => Promise<unknown>
+
+  const apiGet = get as unknown as (
+      url: string,
+      params?: AnyRecord,
+      options?: AnyRecord,
   ) => Promise<unknown>
 
   const skipAuth = { skipAuth: true }
-  const usernamePayload = {
-    username: trimmedAccount,
-    password,
-  }
-  const accountPayload = {
-    account: trimmedAccount,
-    password,
-  }
-  const combinedPayload = {
-    account: trimmedAccount,
-    username: trimmedAccount,
-    password,
-  }
+  const payloads = buildLoginPayloads(trimmedAccount, password)
 
-  const data = await callFirst<string | AnyRecord>([
-    () => apiGet('/api/user/login', usernamePayload, skipAuth),
-    () => apiGet('/api/user/login', accountPayload, skipAuth),
-    () => apiPost('/api/user/login', usernamePayload, skipAuth),
-    () => apiPost('/api/user/login', accountPayload, skipAuth),
-    () => apiPost('/api/user/login', combinedPayload, skipAuth),
-  ])
+  let lastError: unknown
 
-  const token = extractToken(data)
+  for (const payload of payloads) {
+    try {
+      const response = await apiPost('/api/user/login', payload, skipAuth)
+      const data = normalizeApiData<unknown>(response)
+      const token = extractToken(data)
 
-  if (!token) {
-    throw new Error('Login succeeded but the backend response does not contain a token.')
+      if (token) return token
+
+      if (typeof data === 'string' && data.trim()) {
+        return data.trim().replace(/^Bearer\s+/i, '')
+      }
+
+      throw new Error('Login succeeded but token was not found in response.')
+    } catch (error) {
+      lastError = error
+    }
   }
 
-  localStorage.setItem('token', token)
-  localStorage.setItem('username', trimmedAccount)
+  for (const payload of payloads) {
+    try {
+      const response = await apiGet('/api/user/login', payload, skipAuth)
+      const data = normalizeApiData<unknown>(response)
+      const token = extractToken(data)
 
-  return token
+      if (token) return token
+
+      if (typeof data === 'string' && data.trim()) {
+        return data.trim().replace(/^Bearer\s+/i, '')
+      }
+
+      throw new Error('Login succeeded but token was not found in response.')
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw lastError
 }
 
 export async function getUserInfoApi(account?: string): Promise<UserInfoDTO> {
   const trimmedAccount = account?.trim()
-  const params = trimmedAccount
-    ? {
-        account: trimmedAccount,
-        username: trimmedAccount,
-      }
-    : undefined
 
   return callFirst<UserInfoDTO>([
     () => get('/api/user/userInfo'),
-    ...(params ? [() => get('/api/user/userInfo', params)] : []),
+    ...(trimmedAccount
+        ? [
+          () => get('/api/user/userInfo', { username: trimmedAccount }),
+          () => get('/api/user/userInfo', { account: trimmedAccount }),
+          () => get('/api/user/userInfo', { email: trimmedAccount }),
+          () => get('/api/user/userInfo', { name: trimmedAccount }),
+          () => get('/api/user/userInfo', { realName: trimmedAccount }),
+          () => get('/api/user/userInfo', { userId: trimmedAccount }),
+        ]
+        : []),
   ])
 }
 
@@ -358,10 +420,18 @@ export async function getInternalUserInfo(): Promise<UserInfoDTO> {
 }
 
 export async function getUserInfoByIdApi(userId: string | number): Promise<UserInfoDTO> {
+  const idStr = String(userId).trim()
+
   return callFirst<UserInfoDTO>([
-    () => get(`/api/user/${userId}`),
-    () => get('/api/user/info', { userId }),
-    () => get('/api/user/userInfo', { userId }),
+    () => get(`/api/user/${encodeURIComponent(idStr)}`),
+    () => get('/api/user/info', { userId: idStr }),
+    () => get('/api/user/userInfo', { userId: idStr }),
+    () => get('/api/user/userInfo', { id: idStr }),
+    () => get('/api/user/userInfo', { username: idStr }),
+    () => get('/api/user/userInfo', { account: idStr }),
+    () => get('/api/user/userInfo', { email: idStr }),
+    () => get('/api/user/userInfo', { name: idStr }),
+    () => get('/api/user/userInfo', { realName: idStr }),
   ])
 }
 

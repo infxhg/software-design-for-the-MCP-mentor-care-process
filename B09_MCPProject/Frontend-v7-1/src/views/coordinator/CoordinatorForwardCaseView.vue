@@ -91,14 +91,14 @@
             <label>
               Forward to Faculty Consultant
               <select
-                  v-model="selectedConsultants[getCaseId(item)]"
-                  :disabled="!canForward(item) || isSubmitting || consultants.length === 0"
+                v-model="selectedConsultants[getCaseId(item)]"
+                :disabled="!canForward(item) || isSubmitting"
               >
                 <option value="">Select consultant</option>
                 <option
-                    v-for="consultant in consultants"
-                    :key="consultant.id"
-                    :value="consultant.id"
+                  v-for="consultant in consultants"
+                  :key="consultant.id"
+                  :value="consultant.id"
                 >
                   {{ getConsultantName(consultant) }}
                 </option>
@@ -106,38 +106,33 @@
             </label>
 
             <label>
-              Or enter consultant ID
+              Or enter consultant ID manually
               <input
-                  v-model.trim="manualConsultants[getCaseId(item)]"
-                  type="text"
-                  placeholder="e.g. test_faculty_01"
-                  :disabled="!canForward(item) || isSubmitting"
+                v-model="manualConsultants[getCaseId(item)]"
+                type="text"
+                placeholder="Faculty consultant user ID"
+                :disabled="!canForward(item) || isSubmitting"
               />
             </label>
 
             <button
-                class="primary-btn"
-                type="button"
-                :disabled="!canForward(item) || isSubmitting"
-                @click="handleForward(item)"
+              class="primary-btn"
+              type="button"
+              :disabled="!canForward(item) || isSubmitting"
+              @click="handleForward(item)"
             >
               Forward
             </button>
 
             <button
-                class="danger-btn"
-                type="button"
-                :disabled="!canForward(item) || isSubmitting"
-                @click="handleReject(item)"
+              class="danger-btn"
+              type="button"
+              :disabled="!canForward(item) || isSubmitting"
+              @click="handleReject(item)"
             >
               Reject
             </button>
           </div>
-
-          <p v-if="canForward(item) && consultants.length === 0" class="hint">
-            Faculty Consultant list is not available for this role. Enter the consultant user ID
-            manually.
-          </p>
         </article>
       </div>
     </section>
@@ -146,30 +141,32 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import {
-  listCoordinatorCases,
-  rejectCase,
-  type CaseItem,
-} from '../../api/mentoring'
-import { get, put, unwrap } from '../../api/request'
+import { del, get, put, unwrap } from '../../api/request'
+import { listConsultants, type AdminAccount } from '../../api/admin'
 
 type AnyRecord = Record<string, any>
-type LocalCaseItem = CaseItem & AnyRecord
 type NormalizedCaseStatus = 'WAITING' | 'FORWARDED' | 'CLOSED' | 'REJECTED' | 'UNKNOWN'
 
-interface ConsultantOption {
-  id: string
-  username?: string
-  realName?: string
-  name?: string
-  email?: string
-  departmentName?: string
-  source?: string
-  raw?: AnyRecord
+interface LocalCaseItem {
+  id?: string | number
+  caseId?: string | number
+  specialCaseId?: string | number
+  studentId?: string
+  description?: string
+  status?: string
+  submitterId?: string
+  creatorId?: string
+  coordinatorId?: string
+  targetCoordinatorId?: string
+  consultantId?: string
+  targetConsultantId?: string
+  createTime?: string
+  createdAt?: string
+  [key: string]: any
 }
 
 const cases = ref<LocalCaseItem[]>([])
-const consultants = ref<ConsultantOption[]>([])
+const consultants = ref<AdminAccount[]>([])
 const selectedConsultants = ref<Record<string, string>>({})
 const manualConsultants = ref<Record<string, string>>({})
 
@@ -181,19 +178,19 @@ const isCaseError = ref(false)
 const totalCount = computed(() => cases.value.length)
 
 const waitingCount = computed(
-    () => cases.value.filter((item) => normalizeCaseStatus(item.status) === 'WAITING').length,
+  () => cases.value.filter((item) => normalizeCaseStatus(item.status) === 'WAITING').length,
 )
 
 const forwardedCount = computed(
-    () => cases.value.filter((item) => normalizeCaseStatus(item.status) === 'FORWARDED').length,
+  () => cases.value.filter((item) => normalizeCaseStatus(item.status) === 'FORWARDED').length,
 )
 
 const closedCount = computed(
-    () =>
-        cases.value.filter((item) => {
-          const status = normalizeCaseStatus(item.status)
-          return status === 'CLOSED' || status === 'REJECTED'
-        }).length,
+  () =>
+    cases.value.filter((item) => {
+      const status = normalizeCaseStatus(item.status)
+      return status === 'CLOSED' || status === 'REJECTED'
+    }).length,
 )
 
 onMounted(() => {
@@ -206,8 +203,10 @@ async function loadPageData(): Promise<void> {
   isLoading.value = true
 
   try {
-    const caseList = (await listCoordinatorCases()) as LocalCaseItem[]
-    const consultantList = await loadConsultantsSafely(caseList)
+    const [caseList, consultantList] = await Promise.all([
+      listCoordinatorCases(),
+      loadConsultantsSafely(),
+    ])
 
     cases.value = caseList
     consultants.value = consultantList
@@ -215,17 +214,15 @@ async function loadPageData(): Promise<void> {
     if (caseList.length === 0) {
       caseMessage.value = 'No cases assigned to this coordinator.'
       isCaseError.value = false
-      return
     }
 
-    if (consultantList.length === 0) {
+    if (caseList.length > 0 && consultantList.length === 0) {
       caseMessage.value =
-          'Cases loaded. Faculty Consultant list endpoint is not available for this role, so you can enter the consultant user ID manually.'
+        'Cases loaded, but no Faculty Consultant list was returned. You can enter a consultant ID manually.'
       isCaseError.value = false
     }
   } catch (error: any) {
     cases.value = []
-    consultants.value = []
     isCaseError.value = true
     caseMessage.value = buildCaseErrorMessage(error)
   } finally {
@@ -233,225 +230,44 @@ async function loadPageData(): Promise<void> {
   }
 }
 
-async function loadConsultantsSafely(caseList: LocalCaseItem[]): Promise<ConsultantOption[]> {
-  const fromCases = extractConsultantsFromCases(caseList)
-
-  try {
-    const fromOrgUnits = await loadConsultantsFromOrgUnits()
-    return uniqueConsultants([...fromCases, ...fromOrgUnits])
-  } catch {
-    return uniqueConsultants(fromCases)
-  }
-}
-
-async function loadConsultantsFromOrgUnits(): Promise<ConsultantOption[]> {
-  const res = await get<any[]>('/api/org/units')
+async function listCoordinatorCases(): Promise<LocalCaseItem[]> {
+  const res = await get<unknown>('/api/mentoring/cases/coordinator')
   const data = unwrap(res)
-  const units = asArray(data)
 
-  const result: ConsultantOption[] = []
-
-  for (const unit of units) {
-    pushConsultant(result, unit.consultant, 'org.consultant')
-    pushConsultant(result, unit.facultyConsultant, 'org.facultyConsultant')
-    pushConsultant(result, unit.fc, 'org.fc')
-
-    pushConsultantArray(result, unit.consultants, 'org.consultants')
-    pushConsultantArray(result, unit.facultyConsultants, 'org.facultyConsultants')
-
-    pushConsultant(
-        result,
-        {
-          id:
-              unit.consultantId ||
-              unit.facultyConsultantId ||
-              unit.consultantUserId ||
-              unit.facultyConsultantUserId ||
-              unit.fcId,
-          username:
-              unit.consultantUsername ||
-              unit.facultyConsultantUsername ||
-              unit.fcUsername,
-          realName:
-              unit.consultantName ||
-              unit.facultyConsultantName ||
-              unit.fcName,
-          email:
-              unit.consultantEmail ||
-              unit.facultyConsultantEmail ||
-              unit.fcEmail,
-          departmentName: unit.name || unit.departmentName,
-        },
-        'org.fields',
-    )
-  }
-
-  return uniqueConsultants(result)
+  return asArray(data).map((item) => normalizeCase(item))
 }
 
-function extractConsultantsFromCases(caseList: LocalCaseItem[]): ConsultantOption[] {
-  const result: ConsultantOption[] = []
-
-  for (const item of caseList) {
-    pushConsultant(result, item.consultant, 'case.consultant')
-    pushConsultant(result, item.facultyConsultant, 'case.facultyConsultant')
-    pushConsultant(result, item.targetConsultant, 'case.targetConsultant')
-
-    pushConsultantArray(result, item.consultants, 'case.consultants')
-    pushConsultantArray(result, item.facultyConsultants, 'case.facultyConsultants')
-
-    pushConsultant(
-        result,
-        {
-          id:
-              item.consultantId ||
-              item.targetConsultantId ||
-              item.facultyConsultantId ||
-              item.consultantUserId ||
-              item.fcId,
-          username:
-              item.consultantUsername ||
-              item.targetConsultantUsername ||
-              item.facultyConsultantUsername ||
-              item.fcUsername,
-          realName:
-              item.consultantName ||
-              item.targetConsultantName ||
-              item.facultyConsultantName ||
-              item.fcName,
-          email:
-              item.consultantEmail ||
-              item.targetConsultantEmail ||
-              item.facultyConsultantEmail ||
-              item.fcEmail,
-        },
-        'case.fields',
-    )
-  }
-
-  return uniqueConsultants(result)
-}
-
-function pushConsultant(
-    target: ConsultantOption[],
-    raw: unknown,
-    source: string,
-): void {
-  const consultant = normalizeConsultant(raw, source)
-
-  if (consultant) {
-    target.push(consultant)
+async function loadConsultantsSafely(): Promise<AdminAccount[]> {
+  try {
+    return await listConsultants()
+  } catch {
+    return []
   }
 }
 
-function pushConsultantArray(
-    target: ConsultantOption[],
-    value: unknown,
-    source: string,
-): void {
-  if (!Array.isArray(value)) return
-
-  for (const item of value) {
-    pushConsultant(target, item, source)
-  }
-}
-
-function normalizeConsultant(raw: unknown, source: string): ConsultantOption | null {
-  if (raw === null || raw === undefined || raw === '') return null
-
-  if (typeof raw === 'string' || typeof raw === 'number') {
-    const id = String(raw).trim()
-
-    if (!id) return null
-
-    return {
-      id,
-      username: id,
-      name: id,
-      source,
-      raw: { id },
-    }
-  }
-
-  if (typeof raw !== 'object') return null
-
-  const row = raw as AnyRecord
-
-  const id = String(
-      row.userId ||
-      row.id ||
-      row.consultantId ||
-      row.targetConsultantId ||
-      row.facultyConsultantId ||
-      row.consultantUserId ||
-      row.fcId ||
-      row.username ||
-      '',
-  ).trim()
-
-  if (!id) return null
-
+function normalizeCase(raw: AnyRecord): LocalCaseItem {
   return {
-    id,
-    username: row.username || row.account || row.consultantUsername || row.facultyConsultantUsername,
-    realName:
-        row.realName ||
-        row.name ||
-        row.consultantName ||
-        row.facultyConsultantName ||
-        row.fcName,
-    name:
-        row.name ||
-        row.realName ||
-        row.consultantName ||
-        row.facultyConsultantName ||
-        row.fcName ||
-        row.username ||
-        id,
-    email: row.email || row.consultantEmail || row.facultyConsultantEmail,
-    departmentName: row.departmentName || row.department,
-    source,
-    raw: row,
+    ...raw,
+    id: raw.id ?? raw.caseId ?? raw.specialCaseId,
+    caseId: raw.caseId ?? raw.id ?? raw.specialCaseId,
+    studentId: raw.studentId ?? raw.student?.studentId ?? raw.student?.id,
+    description: raw.description ?? raw.reason ?? raw.content ?? '',
+    status: raw.status ?? raw.caseStatus,
+    submitterId: raw.submitterId ?? raw.creatorId ?? raw.mentorId,
+    creatorId: raw.creatorId ?? raw.submitterId ?? raw.mentorId,
+    coordinatorId: raw.coordinatorId ?? raw.targetCoordinatorId,
+    targetCoordinatorId: raw.targetCoordinatorId ?? raw.coordinatorId,
+    consultantId: raw.consultantId ?? raw.targetConsultantId,
+    targetConsultantId: raw.targetConsultantId ?? raw.consultantId,
+    createTime: raw.createTime ?? raw.createdAt,
+    createdAt: raw.createdAt ?? raw.createTime,
   }
-}
-
-function uniqueConsultants(list: ConsultantOption[]): ConsultantOption[] {
-  const map = new Map<string, ConsultantOption>()
-
-  for (const item of list) {
-    const id = String(item.id || '').trim()
-    if (!id) continue
-
-    if (!map.has(id)) {
-      map.set(id, {
-        ...item,
-        id,
-      })
-      continue
-    }
-
-    const old = map.get(id)!
-
-    map.set(id, {
-      ...old,
-      ...item,
-      id,
-      username: old.username || item.username,
-      realName: old.realName || item.realName,
-      name: old.name || item.name,
-      email: old.email || item.email,
-      departmentName: old.departmentName || item.departmentName,
-    })
-  }
-
-  return [...map.values()]
 }
 
 function asArray(value: unknown): AnyRecord[] {
   if (Array.isArray(value)) return value as AnyRecord[]
 
   const obj = value as AnyRecord | null | undefined
-
   if (!obj || typeof obj !== 'object') return []
 
   if (Array.isArray(obj.records)) return obj.records
@@ -511,8 +327,8 @@ function canForward(item: LocalCaseItem): boolean {
   return Boolean(getCaseId(item)) && normalizeCaseStatus(item.status) === 'WAITING'
 }
 
-function getConsultantName(consultant: ConsultantOption): string {
-  const name = consultant.realName || consultant.name || consultant.username || consultant.id
+function getConsultantName(consultant: AdminAccount): string {
+  const name = consultant.realName || consultant.username || consultant.email || consultant.id
 
   if (consultant.email) {
     return `${name} (${consultant.email})`
@@ -523,7 +339,7 @@ function getConsultantName(consultant: ConsultantOption): string {
 
 function getSelectedConsultantId(caseId: string): string {
   return String(
-      selectedConsultants.value[caseId] ||
+    selectedConsultants.value[caseId] ||
       manualConsultants.value[caseId] ||
       '',
   ).trim()
@@ -560,14 +376,41 @@ function buildCaseErrorMessage(error: any): string {
 }
 
 async function forwardCase(caseId: string, targetConsultantId: string): Promise<void> {
-  const res = await put<any>(
-      `/api/mentoring/cases/${encodeURIComponent(caseId)}/forward`,
-      {
-        targetConsultantId,
-      },
+  const res = await put<unknown>(
+    `/api/mentoring/cases/${encodeURIComponent(caseId)}/forward`,
+    {
+      targetConsultantId,
+    },
   )
 
   unwrap(res)
+}
+
+async function rejectCase(caseId: string): Promise<void> {
+  const endpoints = [
+    `/api/mentoring/cases/${encodeURIComponent(caseId)}/reject`,
+    `/api/mentoring/cases/${encodeURIComponent(caseId)}`,
+  ]
+
+  let lastError: unknown = null
+
+  for (const endpoint of endpoints) {
+    try {
+      if (endpoint.endsWith('/reject')) {
+        const res = await put<unknown>(endpoint, {})
+        unwrap(res)
+      } else {
+        const res = await del<unknown>(endpoint)
+        unwrap(res)
+      }
+
+      return
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error('Failed to reject case.')
 }
 
 async function handleForward(item: LocalCaseItem): Promise<void> {
@@ -758,52 +601,47 @@ async function handleReject(item: LocalCaseItem): Promise<void> {
 .case-info dd {
   margin: 4px 0 0;
   color: #111827;
-  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .forward-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) auto auto;
-  align-items: end;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
   gap: 12px;
+  align-items: end;
 }
 
-label {
-  display: grid;
-  gap: 6px;
+.forward-row label {
+  display: block;
   color: #374151;
-  font-size: 14px;
+  font-weight: 600;
 }
 
-select,
-input {
-  min-height: 38px;
-  padding: 8px 10px;
+.forward-row select,
+.forward-row input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 8px;
   border: 1px solid #d1d5db;
   border-radius: 10px;
-  background: #ffffff;
+  padding: 10px 12px;
   font: inherit;
+  background: #ffffff;
 }
 
-button {
-  min-height: 38px;
-  padding: 8px 16px;
+.primary-btn,
+.secondary-btn,
+.danger-btn {
   border: 0;
   border-radius: 10px;
-  font-weight: 600;
+  padding: 10px 16px;
   cursor: pointer;
-}
-
-button:disabled,
-select:disabled,
-input:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
+  font-weight: 700;
 }
 
 .primary-btn {
   background: #2563eb;
-  color: #ffffff;
+  color: white;
 }
 
 .secondary-btn {
@@ -812,13 +650,20 @@ input:disabled {
 }
 
 .danger-btn {
-  background: #dc2626;
-  color: #ffffff;
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.primary-btn:disabled,
+.secondary-btn:disabled,
+.danger-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .message {
+  margin: 0 0 18px;
   padding: 12px 14px;
-  margin: 0 0 16px;
   border-radius: 10px;
   background: #ecfdf5;
   color: #047857;
@@ -829,14 +674,8 @@ input:disabled {
   color: #b91c1c;
 }
 
-.hint {
-  margin: 12px 0 0;
-  color: #6b7280;
-  font-size: 13px;
-}
-
 .empty-state {
-  padding: 40px 20px;
+  padding: 36px 16px;
   text-align: center;
   color: #6b7280;
 }
@@ -844,10 +683,13 @@ input:disabled {
 .status-pill {
   display: inline-flex;
   align-items: center;
-  padding: 5px 10px;
   border-radius: 999px;
+  padding: 6px 10px;
   font-size: 12px;
   font-weight: 700;
+  background: #e5e7eb;
+  color: #374151;
+  white-space: nowrap;
 }
 
 .status-waiting {
@@ -867,7 +709,7 @@ input:disabled {
 
 .status-rejected {
   background: #fee2e2;
-  color: #991b1b;
+  color: #b91c1c;
 }
 
 .status-unknown {
@@ -877,13 +719,23 @@ input:disabled {
 
 @media (max-width: 980px) {
   .summary-grid,
-  .case-info,
+  .case-info {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .forward-row {
     grid-template-columns: 1fr;
   }
 
   .page-header {
     flex-direction: column;
+  }
+}
+
+@media (max-width: 640px) {
+  .summary-grid,
+  .case-info {
+    grid-template-columns: 1fr;
   }
 }
 </style>

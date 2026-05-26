@@ -1,252 +1,277 @@
 <template>
-  <div class="page-card">
-    <div class="header">
-      <div>
-        <h1>Log Information — User Activity Overview</h1>
-        <p class="desc">Activity and interaction logs of the selected user.</p>
-      </div>
-      <button class="secondary" type="button" @click="goHome">Home</button>
-    </div>
+  <div class="page">
+    <section class="card">
+      <div class="top-row">
+        <div>
+          <h1>Student Log Info</h1>
+          <p>
+            User:
+            <strong>{{ displayName }}</strong>
+          </p>
+        </div>
 
-    <div v-if="isLoading" class="loading">Loading log...</div>
-
-    <p v-if="error" class="error">{{ error }}</p>
-
-    <div v-if="!isLoading && userInfo">
-      <div class="info-row">
-        <div><strong>Name:</strong> {{ userInfo.name }} (ID: {{ userInfo.userId }})</div>
-        <div><strong>Role:</strong> {{ userInfo.role }}</div>
-        <div><strong>Department:</strong> {{ userInfo.department }}</div>
-        <div><strong>Status:</strong> {{ userInfo.status }}</div>
+        <button class="secondary-btn" type="button" @click="goSearch">
+          Back
+        </button>
       </div>
 
-      <h2>Activity &amp; Interaction Logs</h2>
+      <p v-if="message" class="message" :class="{ error: isError }">
+        {{ message }}
+      </p>
 
-      <table v-if="logs.length > 0">
+      <div v-if="isLoading" class="empty-state">
+        Loading logs...
+      </div>
+
+      <div v-else-if="logs.length === 0" class="empty-state">
+        No logs found for this user.
+      </div>
+
+      <table v-else class="log-table">
         <thead>
         <tr>
-          <th>Date</th>
-          <th>Log Type</th>
-          <th>Summary / Action Taken</th>
+          <th>Time</th>
+          <th>User ID</th>
+          <th>Username</th>
+          <th>Role</th>
+          <th>Module</th>
+          <th>Action</th>
+          <th>Detail</th>
         </tr>
         </thead>
+
         <tbody>
-        <tr v-for="(l, i) in logs" :key="`${l.date}-${l.logType}-${i}`">
-          <td>{{ l.date }}</td>
-          <td>{{ l.logType }}</td>
-          <td>{{ l.summary }}</td>
+        <tr v-for="item in logs" :key="getLogKey(item)">
+          <td>{{ formatTime(getValue(item, 'createTime') || getValue(item, 'createdAt')) }}</td>
+          <td>{{ getUserId(item) }}</td>
+          <td>{{ getUsername(item) }}</td>
+          <td>{{ getValue(item, 'role') || getValue(item, 'userRole') || '-' }}</td>
+          <td>{{ getValue(item, 'module') || '-' }}</td>
+          <td>{{ getValue(item, 'action') || getValue(item, 'operation') || '-' }}</td>
+          <td>
+            {{
+              getValue(item, 'detail') ||
+              getValue(item, 'summary') ||
+              getValue(item, 'description') ||
+              '-'
+            }}
+          </td>
         </tr>
         </tbody>
       </table>
-
-      <p v-else class="empty">No log activity found.</p>
-    </div>
-
-    <p v-else-if="!isLoading && !error" class="error">User not found.</p>
-
-    <div class="buttons">
-      <button class="secondary" type="button" @click="goBack">Back</button>
-    </div>
+    </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import {
-  getLogsByUser,
-  getUserInfoByIdApi,
-  type OperationLog,
-  type UserInfoDTO,
-} from '../../api/support'
+import { searchLogs, type OperationLog } from '../../api/support'
+
+type AnyRecord = Record<string, any>
 
 const route = useRoute()
 const router = useRouter()
 
-const userId = String(route.params.userId || '').trim()
+const logs = ref<OperationLog[]>([])
+const isLoading = ref(false)
+const message = ref('')
+const isError = ref(false)
 
-const userInfo = ref<{
-  userId: string
-  name: string
-  role: string
-  department: string
-  status: string
-} | null>(null)
+const userId = computed(() => String(route.query.userId ?? route.params.userId ?? '').trim())
+const username = computed(() => String(route.query.username ?? '').trim())
+const name = computed(() => String(route.query.name ?? '').trim())
+const searchKey = computed(() => String(route.query.key ?? userId.value ?? username.value ?? '').trim())
 
-const logs = ref<Array<{ date: string; logType: string; summary: string }>>([])
-const isLoading = ref(true)
-const error = ref('')
+const displayName = computed(() => {
+  const parts = [
+    name.value,
+    username.value && username.value !== name.value ? username.value : '',
+    userId.value && userId.value !== username.value ? userId.value : '',
+  ].filter(Boolean)
 
-function text(value: unknown, fallback = '-'): string {
-  const result = String(value ?? '').trim()
-  return result || fallback
-}
+  return parts.length ? parts.join(' / ') : searchKey.value || '-'
+})
 
-function formatDate(value: unknown): string {
-  const raw = text(value, '')
-  if (!raw) return '-'
+onMounted(() => {
+  loadLogs()
+})
 
-  const date = new Date(raw)
-  if (Number.isNaN(date.getTime())) return raw
+async function loadLogs(): Promise<void> {
+  const key = searchKey.value || userId.value || username.value
 
-  const yyyy = date.getFullYear()
-  const mm = String(date.getMonth() + 1).padStart(2, '0')
-  const dd = String(date.getDate()).padStart(2, '0')
-  const hh = String(date.getHours()).padStart(2, '0')
-  const min = String(date.getMinutes()).padStart(2, '0')
+  message.value = ''
+  isError.value = false
+  logs.value = []
 
-  return `${yyyy}-${mm}-${dd} ${hh}:${min}`
-}
-
-function normalizeLog(log: OperationLog) {
-  return {
-    date: formatDate(log.date || log.timestamp || log.createTime || log.createdAt),
-    logType: text(log.logType || log.type || log.module || log.action || log.operation, 'Activity'),
-    summary: text(log.summary || log.detail || log.operation || log.action, '-'),
-  }
-}
-
-function normalizeUserInfo(info?: UserInfoDTO | null, sourceLog?: OperationLog) {
-  if (!info && !sourceLog && !userId) return null
-
-  return {
-    userId: text(info?.userId || info?.id || sourceLog?.userId || userId),
-    name: text(
-      info?.realName ||
-        info?.name ||
-        info?.username ||
-        sourceLog?.realName ||
-        sourceLog?.name ||
-        sourceLog?.username ||
-        sourceLog?.userName ||
-        userId,
-    ),
-    role: text(info?.role || sourceLog?.role),
-    department: text(sourceLog?.department),
-    status: text(info?.status || sourceLog?.status),
-  }
-}
-
-async function loadLogInfo() {
-  if (!userId) {
-    error.value = 'Invalid user ID.'
-    isLoading.value = false
+  if (!key) {
+    message.value = 'Missing user ID or username.'
+    isError.value = true
     return
   }
 
   isLoading.value = true
-  error.value = ''
-
-  let fetchedLogs: OperationLog[] = []
-  let fetchedUser: UserInfoDTO | null = null
-  let logError: unknown = null
-  let userError: unknown = null
 
   try {
-    fetchedLogs = await getLogsByUser(userId)
-  } catch (err) {
-    logError = err
-    console.error('[support log] failed to load user logs:', err)
+    // 修复点: 只传 query 单一字段给底层的 support API，防止发送多个字段导致后端走强制 AND 判断
+    const list = await searchLogs({
+      query: key
+    })
+
+    logs.value = list
+
+    if (list.length === 0) {
+      message.value = 'No logs found for this user.'
+      isError.value = false
+    }
+  } catch (error: any) {
+    logs.value = []
+    message.value = `Failed to load logs: ${error?.message || 'Unknown error'}`
+    isError.value = true
+  } finally {
+    isLoading.value = false
   }
-
-  try {
-    fetchedUser = await getUserInfoByIdApi(userId)
-  } catch (err) {
-    userError = err
-    console.warn('[support log] failed to load user info:', err)
-  }
-
-  logs.value = fetchedLogs.map(normalizeLog)
-  userInfo.value = normalizeUserInfo(fetchedUser, fetchedLogs[0])
-
-  if (!userInfo.value && fetchedLogs.length === 0) {
-    const fallbackError = logError || userError
-    error.value = fallbackError instanceof Error ? fallbackError.message : 'Failed to load log information.'
-  }
-
-  isLoading.value = false
 }
 
-onMounted(() => {
-  loadLogInfo()
-})
-
-function goBack() {
-  router.back()
+function getValue(item: OperationLog, key: string): string {
+  const raw = item as AnyRecord
+  return String(raw[key] ?? '')
 }
 
-function goHome() {
-  router.push('/main')
+function getUserId(item: OperationLog): string {
+  const raw = item as AnyRecord
+
+  return String(
+      raw.userId ??
+      raw.studentId ??
+      raw.mentorId ??
+      raw.operatorUserId ??
+      raw.operatorId ??
+      raw.targetUserId ??
+      '-',
+  )
+}
+
+function getUsername(item: OperationLog): string {
+  const raw = item as AnyRecord
+
+  return String(
+      raw.username ??
+      raw.userName ??
+      raw.operatorUsername ??
+      raw.targetUsername ??
+      '-',
+  )
+}
+
+function getLogKey(item: OperationLog): string {
+  const raw = item as AnyRecord
+
+  return String(
+      raw.logId ??
+      raw.id ??
+      `${getUserId(item)}-${getUsername(item)}-${raw.createTime ?? raw.createdAt ?? ''}-${
+          raw.action ?? raw.operation ?? ''
+      }`,
+  )
+}
+
+function formatTime(value: string): string {
+  if (!value) return '-'
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+
+  return date.toLocaleString()
+}
+
+function goSearch(): void {
+  router.push('/support/search-log')
 }
 </script>
 
 <style scoped>
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+.page {
+  padding: 24px;
 }
 
-.info-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 10px;
-  margin-top: 22px;
-  padding: 16px;
-  background: #f9fafb;
-  border-radius: 8px;
-}
-
-h2 {
-  margin-top: 24px;
-  font-size: 17px;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 14px;
-}
-
-th,
-td {
-  padding: 10px;
+.card {
+  padding: 28px;
   border: 1px solid #e5e7eb;
-  text-align: left;
+  border-radius: 10px;
+  background: #ffffff;
 }
 
-th {
-  background: #f3f4f6;
+.top-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+h1 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 30px;
+}
+
+p {
+  margin: 10px 0 0;
+  color: #64748b;
 }
 
 button {
-  border: none;
-  border-radius: 6px;
-  padding: 8px 16px;
-  color: white;
-  font-weight: 600;
+  min-height: 36px;
+  padding: 8px 18px;
+  border: 0;
+  border-radius: 5px;
+  font-weight: 700;
   cursor: pointer;
 }
 
-.secondary {
+.secondary-btn {
   background: #6b7280;
+  color: #ffffff;
 }
 
-.secondary:hover {
-  background: #4b5563;
+.message {
+  margin: 14px 0;
+  color: #047857;
 }
 
-.buttons {
-  margin-top: 22px;
-}
-
-.empty,
-.loading {
-  color: #6b7280;
-  padding: 20px 0;
-}
-
-.error {
+.message.error {
   color: #dc2626;
+}
+
+.empty-state {
+  padding: 24px 0;
+  color: #64748b;
+}
+
+.log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.log-table th,
+.log-table td {
+  padding: 10px;
+  border: 1px solid #e5e7eb;
+  text-align: left;
+  vertical-align: top;
+}
+
+.log-table th {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.log-table td {
+  color: #111827;
 }
 </style>
