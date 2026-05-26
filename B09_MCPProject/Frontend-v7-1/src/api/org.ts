@@ -271,28 +271,28 @@ export async function getAllStudents(): Promise<StudentInfo[]> {
   return (unwrap(res) || []).map((item) => normalizeStudent(item))
 }
 
-<<<<<<< HEAD
-
 export async function searchMyScope(keyword = ''): Promise<MyScopeSearchResult> {
   const res = await get<any>(
     '/api/org/my-scope/search',
     keyword.trim() ? { keyword: keyword.trim() } : undefined,
-=======
+  )
+  const data = unwrap(res) || {}
+
+  return {
+    mentors: Array.isArray(data.mentors) ? data.mentors.map(normalizeMentor) : [],
+    students: Array.isArray(data.students) ? data.students.map((item: any) => normalizeStudent(item)) : [],
+    facultyConsultants: Array.isArray(data.facultyConsultants)
+      ? data.facultyConsultants.map(normalizeFacultyConsultant)
+      : [],
+    raw: data,
+  }
+}
+
+export const searchCurrentScope = searchMyScope
+
 /**
- * 修改点 (v10 NEW)：
- * 按文档新增的 FC 专用接口
- *   GET /api/org/groups/by-key/{groupKey}
- * 用唯一标识 groupKey (UUID 形态) 拿到该组的完整画像：
- *   { group, mentor, studentMemberIds, studentCount }
- *
- * 用途：Search Mentor Info 找到 mentor 后，点击页面上展示的某个 group ID
- * （前端拿到的实际是 mentor.groupKeys[i]）跳到 GroupMembersView，
- * GroupMembersView 用本接口拉数据，不再走 /api/mentoring/records/group/{groupId}
- * （旧接口不接受 UUID 形态，会 500 "Group not found"）。
- *
- * 注意返回里 studentMemberIds 是字符串数组 (e.g. ["202500004", ...])，
- * 不是带详细字段的 student 对象数组。如果业务需要更多 student 字段，
- * 上层可基于这里的 ID 再去调 lookupStudent / searchStudents。
+ * GET /api/org/groups/by-key/{groupKey}
+ * Resolve a group portrait by UUID groupKey for GroupMembersView.
  */
 export interface GroupByKeyGroup {
   groupId?: string
@@ -314,25 +314,10 @@ export interface GroupByKeyData {
 }
 
 export async function getGroupByKey(groupKey: string): Promise<GroupByKeyData> {
-  const res = await get<any>(
-    `/api/org/groups/by-key/${encodeURIComponent(groupKey)}`,
->>>>>>> 75b64c7fca6f28dbd6ad49b258018c732b1e2df5
-  )
+  const res = await get<any>(`/api/org/groups/by-key/${encodeURIComponent(groupKey)}`)
   const data = unwrap(res) || {}
 
   return {
-<<<<<<< HEAD
-    mentors: Array.isArray(data.mentors) ? data.mentors.map(normalizeMentor) : [],
-    students: Array.isArray(data.students) ? data.students.map((item: any) => normalizeStudent(item)) : [],
-    facultyConsultants: Array.isArray(data.facultyConsultants)
-      ? data.facultyConsultants.map(normalizeFacultyConsultant)
-      : [],
-    raw: data,
-  }
-}
-
-export const searchCurrentScope = searchMyScope
-=======
     group: data.group || {},
     mentor: data.mentor ? normalizeMentor(data.mentor) : null,
     studentMemberIds: Array.isArray(data.studentMemberIds)
@@ -347,4 +332,3 @@ export const searchCurrentScope = searchMyScope
     raw: data,
   }
 }
->>>>>>> 75b64c7fca6f28dbd6ad49b258018c732b1e2df5

@@ -218,11 +218,6 @@ function formatDateTime(value: unknown): string {
 
 function toFriendlyError(err: any, fallback: string): string {
   const text = String(err?.message || err || '')
-
-  if (/权限不足|不属于您负责的小组|不属于.*负责的小组|不在.*组内|无权/.test(text)) {
-    return 'Authorization warning: This student is not in any group assigned to you.'
-  }
-
   if (/401|unauthor/i.test(text)) return 'Session expired or unauthorized. Please login again.'
   if (/403|forbidden|permission|access/i.test(text)) {
     return 'Authorization warning: you are not allowed to submit or view this case.'
