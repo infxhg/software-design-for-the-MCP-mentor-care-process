@@ -45,7 +45,7 @@
         Department Name
         <input
           v-model.trim="form.department"
-          placeholder="e.g. DCS"
+          placeholder="e.g. Department of Computer Science"
         />
       </label>
 
