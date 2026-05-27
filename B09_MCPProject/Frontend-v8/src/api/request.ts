@@ -227,6 +227,86 @@ export async function downloadBlob(
   return request<Blob>('GET', url, { ...options, params })
 }
 
+/**
+ * 修改点 (NEW)：带响应头信息的下载。
+ *
+ * 普通的 downloadBlob 只能拿到 Blob，无法得知：
+ *   1. 后端通过 Content-Disposition 指定的真实文件名（含扩展名）
+ *   2. 真实的 Content-Type（决定文件到底是 docx 还是 zip）
+ *
+ * 这导致 FC 导出场景下，后端返回 zip 时，前端仍按 .docx 命名保存，
+ * 打开就是乱码。改用这个函数后，调用方可以根据返回的 contentType
+ * 选择正确扩展名，filename 也优先用后端给的。
+ *
+ * CORS 注意：浏览器默认看不到 Content-Disposition，需要后端在响应里加
+ *   Access-Control-Expose-Headers: Content-Disposition
+ * 否则只能拿到 Content-Type，filename 字段为空，由调用方走兜底命名。
+ *
+ * 这里复用 rawResponse: true 走原始 fetch Response，自己读 headers / blob，
+ * 同时保留原 request 的 401 跳登录 / 非 2xx 抛错语义。
+ */
+export interface BlobWithMeta {
+  blob: Blob
+  filename: string
+  contentType: string
+}
+
+export async function downloadBlobWithHeaders(
+  url: string,
+  params?: QueryParams,
+  options: RequestOptions = {},
+): Promise<BlobWithMeta> {
+  const response = await request<Response>('GET', url, {
+    ...options,
+    params,
+    rawResponse: true,
+  })
+
+  if (response.status === 401) {
+    clearLoginState()
+    if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+      window.location.href = '/login'
+    }
+    throw new Error('Token expired or unauthorized. Please login again.')
+  }
+
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response))
+  }
+
+  const contentType = response.headers.get('content-type') || ''
+  const disposition = response.headers.get('content-disposition') || ''
+  const filename = parseContentDispositionFilename(disposition)
+  const blob = await response.blob()
+
+  return { blob, filename, contentType }
+}
+
+/**
+ * Parse RFC 5987 / RFC 6266 Content-Disposition filename.
+ * 优先 filename*=（支持 UTF-8 编码），退化到 filename=。
+ */
+function parseContentDispositionFilename(header: string): string {
+  if (!header) return ''
+
+  const star = header.match(/filename\*\s*=\s*([^']*)''([^;]+)/i)
+  if (star) {
+    const encoded = star[2].trim().replace(/^"|"$/g, '')
+    try {
+      return decodeURIComponent(encoded)
+    } catch {
+      return encoded
+    }
+  }
+
+  const simple = header.match(/filename\s*=\s*("([^"]+)"|([^;]+))/i)
+  if (simple) {
+    return (simple[2] || simple[3] || '').trim()
+  }
+
+  return ''
+}
+
 export function saveBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')

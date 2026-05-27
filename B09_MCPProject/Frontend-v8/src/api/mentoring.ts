@@ -2,12 +2,14 @@ import { getUserInfoApi } from './user'
 import {
   del,
   downloadBlob,
+  downloadBlobWithHeaders,
   get,
   post,
   put,
   saveBlob,
   upload,
   unwrap,
+  type BlobWithMeta,
   type QueryParams,
 } from './request'
 import {
@@ -1205,7 +1207,9 @@ export async function exportGroupRecordsForConsultant(groupId: string): Promise<
 
 export const exportFcGroupRecords = exportGroupRecordsForConsultant
 
-export async function exportConsultantRecords(filter: ConsultantExportFilter): Promise<Blob> {
+export async function exportConsultantRecords(
+  filter: ConsultantExportFilter,
+): Promise<BlobWithMeta> {
   const params: QueryParams = {}
 
   for (const [key, value] of Object.entries(filter)) {
@@ -1216,11 +1220,42 @@ export async function exportConsultantRecords(filter: ConsultantExportFilter): P
   if (filter.mentorName && !params.mentorKeyword) params.mentorKeyword = filter.mentorName
   if (filter.studentName && !params.studentKeyword) params.studentKeyword = filter.studentName
 
-  return downloadBlob('/api/mentoring/export/consultant', params)
+  /**
+   * 修改点 (FIX)：FC 条件筛选导出后端可能返回两种文件——
+   *   - 单条 / 同类型 → application/vnd.openxmlformats-officedocument.wordprocessingml.document (.docx)
+   *   - 多个分组打包 → application/zip (.zip)
+   * 旧的 downloadBlob 只拿 Blob，前端固定按 .docx 命名，zip 被存成 .docx 打开就乱码。
+   * 这里改走 downloadBlobWithHeaders，把后端的真实 Content-Type 和
+   * Content-Disposition 文件名一起返回，由调用方按需保存。
+   */
+  return downloadBlobWithHeaders('/api/mentoring/export/consultant', params)
 }
 
 export const exportRecordsByFilter = exportConsultantRecords
 
 export function downloadExportedFile(blob: Blob, filename: string): void {
   saveBlob(blob, filename)
+}
+
+/**
+ * 修改点 (NEW)：根据后端返回的 Content-Type / Content-Disposition 自动决定
+ * 保存的文件名和扩展名。优先级：
+ *   1) 后端 Content-Disposition 给的完整文件名（含扩展名）
+ *   2) 后端 Content-Type 推断扩展名（zip/docx/doc），拼到 fallbackBaseName 后
+ *
+ * 这是 exportConsultantRecords 等返回 BlobWithMeta 的接口的配套保存函数，
+ * 不影响仍然返回纯 Blob + 由前端硬编码扩展名的其它导出入口。
+ */
+export function saveExportedBlob(meta: BlobWithMeta, fallbackBaseName: string): void {
+  const filename = meta.filename || `${fallbackBaseName}${guessExtensionFromContentType(meta.contentType)}`
+  saveBlob(meta.blob, filename)
+}
+
+function guessExtensionFromContentType(contentType: string): string {
+  const ct = (contentType || '').toLowerCase()
+  if (ct.includes('zip')) return '.zip'
+  if (ct.includes('wordprocessingml')) return '.docx'
+  if (ct.includes('msword')) return '.doc'
+  // 兜底：保守用 .docx，跟之前默认行为一致
+  return '.docx'
 }
