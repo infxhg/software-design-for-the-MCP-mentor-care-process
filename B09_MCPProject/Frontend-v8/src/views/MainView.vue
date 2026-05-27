@@ -67,8 +67,6 @@ const cards: DashboardCard[] = [
   { title: 'Change Mentors', description: 'Change the mentor assigned to a group.', path: '/consultant/change-mentors', linkText: 'Open', roles: ['consultant'] },
   { title: 'Update Mentor Group', description: 'Add or remove students from a mentoring group.', path: '/consultant/update-group', linkText: 'Open', roles: ['consultant'] },
   { title: 'Designate Coordinators', description: 'Assign MCP coordinators to departments.', path: '/consultant/designate-coordinators', linkText: 'Open', roles: ['consultant'] },
-  { title: 'Department Management', description: 'Browse departments and manage their coordinators.', path: '/consultant/departments', linkText: 'Open', roles: ['consultant'] },
-  { title: 'Group Management', description: 'Browse mentoring groups and manage members.', path: '/consultant/groups', linkText: 'Open', roles: ['consultant'] },
   { title: 'Export Records', description: 'Export interview records by academic year / department / mentor / student.', path: '/consultant/export-records', linkText: 'Open', roles: ['consultant'] },
   { title: 'View Student Log Info', description: 'Search activity logs for students in your faculty scope.', path: '/consultant/search-log', linkText: 'Open', roles: ['consultant'] },
 

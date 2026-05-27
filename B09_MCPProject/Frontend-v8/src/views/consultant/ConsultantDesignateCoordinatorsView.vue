@@ -176,9 +176,44 @@ onMounted(loadUnits)
 label { display: grid; gap: 6px; font-weight: 600; }
 input { padding: 9px 10px; border: 1px solid #cbd5e1; border-radius: 8px; }
 .actions { display: flex; gap: 10px; flex-wrap: wrap; }
-button { width: fit-content; padding: 8px 14px; border: 1px solid #bbb; border-radius: 8px; background: #fff; cursor: pointer; }
-.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
-.danger { color: #b42318; border-color: #f3b8b2; }
+/* 修改点：统一按钮样式 — 旧版 button 白底导致 "Update" / "Refresh Units" 几乎不可见，
+   .danger 是白底淡红边对 "Remove" 这种破坏性动作视觉冲击太弱。
+   现在：默认浅灰、.primary 蓝、.danger 填充红，全部带 hover/disabled 态。
+   只改 CSS，不动 template 和 script，所有功能保持原样。 */
+button {
+  width: fit-content;
+  padding: 8px 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f1f5f9;
+  color: #1f2937;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color .15s ease, opacity .15s ease;
+}
+button:hover:not(:disabled) { background: #e2e8f0; }
+button:disabled { opacity: 0.55; cursor: not-allowed; }
+.primary {
+  background: #1f6feb;
+  border-color: #1f6feb;
+  color: #fff;
+  font-weight: 600;
+}
+.primary:hover:not(:disabled) { background: #1a5fd0; border-color: #1a5fd0; }
+.secondary {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #1f2937;
+}
+.secondary:hover:not(:disabled) { background: #e2e8f0; }
+.danger {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+  font-weight: 600;
+}
+.danger:hover:not(:disabled) { background: #b91c1c; border-color: #b91c1c; }
 .table { width: 100%; border-collapse: collapse; }
 th, td { border: 1px solid #e5e7eb; padding: 9px; text-align: left; }
 th { background: #f8fafc; }

@@ -229,8 +229,36 @@ h2 { margin-top: 24px; font-size: 18px; }
 th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
 th { background: #f8fafc; }
 .buttons { margin-top: 22px; }
-button { padding: 6px 10px; border-radius: 6px; border: 1px solid #cbd5e1; background: #fff; cursor: pointer; }
-.danger { color: #b42318; border-color: #f3b8b2; background: #fff; }
+/* 修改点：统一按钮样式 —
+   旧版 button 白底导致 "Home"/"Back"（class="secondary"）失去全局 .secondary 灰底，
+   .danger 是白底淡红边，对 "Delete" 这种危险动作几乎看不见。
+   .action-btn（"Manual Setup"/"Excel Import"/"Refresh"）保留原样，是另一套设计语言。 */
+button {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background: #f1f5f9;
+  color: #1f2937;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color .15s ease, opacity .15s ease;
+}
+button:hover:not(:disabled) { background: #e2e8f0; }
+button:disabled { opacity: 0.55; cursor: not-allowed; }
+.secondary {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #1f2937;
+}
+.secondary:hover:not(:disabled) { background: #e2e8f0; }
+.danger {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+  font-weight: 600;
+}
+.danger:hover:not(:disabled) { background: #b91c1c; border-color: #b91c1c; }
 .small { padding: 3px 8px; font-size: 12px; }
 .error { color: #dc2626; margin-top: 14px; }
 </style>

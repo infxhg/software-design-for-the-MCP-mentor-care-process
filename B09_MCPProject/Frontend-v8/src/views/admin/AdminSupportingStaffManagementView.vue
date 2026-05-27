@@ -92,9 +92,41 @@ p { margin: 0; color: #666; }
 th, td { border: 1px solid #e5e7eb; padding: 10px; text-align: left; }
 th { background: #f8fafc; }
 .actions { white-space: nowrap; }
-button { margin-right: 8px; padding: 6px 10px; border: 1px solid #bbb; border-radius: 6px; background: #fff; cursor: pointer; }
-.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
-.danger { color: #b42318; border-color: #f3b8b2; }
+/* 修改点：统一按钮样式 — 详见 AdminConsultantManagementView，同样规则。 */
+button {
+  margin-right: 8px;
+  padding: 6px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #f1f5f9;
+  color: #1f2937;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color .15s ease, opacity .15s ease;
+}
+button:hover:not(:disabled) { background: #e2e8f0; }
+button:disabled { opacity: 0.55; cursor: not-allowed; }
+.primary {
+  background: #1f6feb;
+  border-color: #1f6feb;
+  color: #fff;
+  font-weight: 600;
+}
+.primary:hover:not(:disabled) { background: #1a5fd0; border-color: #1a5fd0; }
+.secondary {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #1f2937;
+}
+.secondary:hover:not(:disabled) { background: #e2e8f0; }
+.danger {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+  font-weight: 600;
+}
+.danger:hover:not(:disabled) { background: #b91c1c; border-color: #b91c1c; }
 .error { margin: 12px 0; color: #b42318; }
 .empty { text-align: center; color: #777; }
 </style>

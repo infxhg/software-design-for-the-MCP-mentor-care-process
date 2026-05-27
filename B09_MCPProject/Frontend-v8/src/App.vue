@@ -47,8 +47,6 @@
           <router-link to="/consultant/change-mentors">Change Mentors</router-link>
           <router-link to="/consultant/update-group">Update Mentor Group</router-link>
           <router-link to="/consultant/designate-coordinators">Designate Coordinators</router-link>
-          <router-link to="/consultant/departments">Department Management</router-link>
-          <router-link to="/consultant/groups">Group Management</router-link>
           <router-link to="/consultant/export-records">Export Records</router-link>
           <router-link to="/consultant/search-log">View Student Log Info</router-link>
           <router-link to="/communication">Communicate</router-link>
@@ -145,7 +143,15 @@ async function logout() {
 }
 
 .sidebar {
-  width: 260px;
+  /*
+   * 修改点：侧边栏宽度按视口比例自适应，同时设了 min/max。
+   *   - clamp(220px, 18vw, 300px)：浏览器变宽时按 18% 视口宽度走，但不超过 300px；
+   *     变窄时不低于 220px，保证导航文字仍可读。
+   *   - flex-shrink: 0：阻止 flex 容器在空间紧张时压缩侧边栏。
+   *   旧版只设 width: 260px，flex 默认 shrink=1，右侧内容（如长表格）一宽就把侧边栏挤窄。
+   */
+  flex: 0 0 clamp(220px, 18vw, 300px);
+  width: clamp(220px, 18vw, 300px);
   padding: 24px 18px;
   background: #1f2937;
   color: white;
@@ -199,6 +205,12 @@ async function logout() {
 
 .main {
   flex: 1;
+  /*
+   * 修改点：flex 子项默认 min-width: auto，会跟着内容（如宽表格）撑开，
+   * 反过来把同级的侧边栏挤窄。设为 0 后内容超宽时 .main 自己出滚动条
+   * （或者由表格自己处理），侧边栏不再被反向挤压。
+   */
+  min-width: 0;
   display: flex;
   flex-direction: column;
 }

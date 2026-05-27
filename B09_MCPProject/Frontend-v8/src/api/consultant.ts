@@ -1,6 +1,7 @@
 import { del, post, put, unwrap } from './request'
 import {
   addStudentToGroup,
+  addStudentToGroupByKey,
   changeGroupMentor,
   changeGroupMentorByKey,
   exportConsultantRecords,
@@ -14,6 +15,7 @@ import {
   listConsultantCases,
   listGroups,
   removeStudentFromGroup,
+  removeStudentFromGroupByKey,
   searchGroup,
   searchGroups,
   type CaseItem,
@@ -25,6 +27,7 @@ import { getOrgTree, isOrgType, searchMentors, type MentorInfo, type OrgUnit } f
 
 export {
   addStudentToGroup,
+  addStudentToGroupByKey,
   changeGroupMentor,
   changeGroupMentorByKey,
   exportConsultantRecords,
@@ -36,6 +39,7 @@ export {
   importMcpAllocation,
   listGroups,
   removeStudentFromGroup,
+  removeStudentFromGroupByKey,
   searchGroup,
   searchGroups,
   searchMentors,

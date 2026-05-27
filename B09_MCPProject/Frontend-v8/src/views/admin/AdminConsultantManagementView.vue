@@ -121,10 +121,43 @@ p { margin: 0; color: #666; }
 th, td { border: 1px solid #e5e7eb; padding: 10px; text-align: left; }
 th { background: #f8fafc; }
 .actions { white-space: nowrap; }
-button { margin-right: 8px; padding: 6px 10px; border: 1px solid #bbb; border-radius: 6px; background: #fff; cursor: pointer; }
+/* 修改点：统一按钮样式 — 旧版 button 白底导致 "Refresh"/"Change" 几乎看不见，
+   .danger 是白底淡红边对 "Delete" 这种危险动作视觉冲击太弱。
+   现在：默认浅灰、.primary 蓝、.danger 填充红，相邻按钮间距 8px。 */
+button {
+  margin-right: 8px;
+  padding: 6px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #f1f5f9;
+  color: #1f2937;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color .15s ease, opacity .15s ease;
+}
+button:hover:not(:disabled) { background: #e2e8f0; }
 button:disabled { opacity: 0.55; cursor: not-allowed; }
-.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
-.danger { color: #b42318; border-color: #f3b8b2; }
+.primary {
+  background: #1f6feb;
+  border-color: #1f6feb;
+  color: #fff;
+  font-weight: 600;
+}
+.primary:hover:not(:disabled) { background: #1a5fd0; border-color: #1a5fd0; }
+.secondary {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #1f2937;
+}
+.secondary:hover:not(:disabled) { background: #e2e8f0; }
+.danger {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+  font-weight: 600;
+}
+.danger:hover:not(:disabled) { background: #b91c1c; border-color: #b91c1c; }
 .error { margin: 12px 0; color: #b42318; }
 .muted { margin: 12px 0; color: #6b7280; }
 .empty { text-align: center; color: #777; }

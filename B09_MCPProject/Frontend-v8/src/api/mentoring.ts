@@ -731,6 +731,45 @@ export async function removeStudentFromGroup(
   unwrap(res)
 }
 
+/**
+ * 修改点 (NEW)：按 groupKey 增/删组员（FC 专用）。
+ *
+ * 接口：
+ *   POST   /api/mentoring/groups/by-key/{groupKey}/members/{studentId}
+ *   DELETE /api/mentoring/groups/by-key/{groupKey}/members/{studentId}
+ *
+ * 与老的 addStudentToGroup / removeStudentFromGroup 的区别：
+ *   - groupKey 是 group 全局唯一 UUID，等价于 groupId+majorId+mentorId，
+ *     可以精确定位「同 groupId / 同 majorId 但不同 mentor」造成的多组场景；
+ *   - 不再需要 majorId 配合 groupId 消歧；
+ *   - 老接口保留供其它入口继续使用（ConsultantGroupDetailView 等）。
+ */
+export async function addStudentToGroupByKey(
+  groupKey: string,
+  studentId: string,
+): Promise<void> {
+  const key = String(groupKey || '').trim()
+  if (!key) throw new Error('groupKey is required')
+
+  const res = await post<null>(
+    `/api/mentoring/groups/by-key/${encodeURIComponent(key)}/members/${encodeURIComponent(studentId)}`,
+  )
+  unwrap(res)
+}
+
+export async function removeStudentFromGroupByKey(
+  groupKey: string,
+  studentId: string,
+): Promise<void> {
+  const key = String(groupKey || '').trim()
+  if (!key) throw new Error('groupKey is required')
+
+  const res = await del<null>(
+    `/api/mentoring/groups/by-key/${encodeURIComponent(key)}/members/${encodeURIComponent(studentId)}`,
+  )
+  unwrap(res)
+}
+
 export async function changeGroupMentor(
   groupId: string,
   mentorId: string,
