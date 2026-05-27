@@ -37,15 +37,7 @@
 
       <div class="hint">
         <p>Use your BNBU account to login.</p>
-        <p>Backend server: 8.134.126.87:8080</p>
       </div>
-
-      <!--
-        Dev-only fake-login panel.
-        Visible only when `import.meta.env.DEV === true` (`npm run dev`),
-        and automatically tree-shaken away in production build.
-      -->
-      <DevLoginPanel />
     </div>
   </div>
 </template>
@@ -54,7 +46,6 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { loginApi, getUserInfoApi, mapBackendRole } from '../api/user'
-import DevLoginPanel from '../devtools/DevLoginPanel.vue'
 
 const router = useRouter()
 

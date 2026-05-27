@@ -83,13 +83,6 @@
     </main>
   </div>
 
-  <!--
-    Dev-only floating panel.
-    Visible in both login page and inside the app, but only when running
-    `npm run dev` (i.e. `import.meta.env.DEV === true`).
-    Strip out automatically in production build.
-  -->
-  <DevFloatingPanel />
 </template>
 
 <script setup lang="ts">
@@ -98,7 +91,6 @@ import { useRoute, useRouter } from 'vue-router'
 import type { Role } from './types'
 import { getRoleLabel } from './types'
 import { logoutApi } from './api/user'
-import DevFloatingPanel from './devtools/DevFloatingPanel.vue'
 
 const route = useRoute()
 const router = useRouter()

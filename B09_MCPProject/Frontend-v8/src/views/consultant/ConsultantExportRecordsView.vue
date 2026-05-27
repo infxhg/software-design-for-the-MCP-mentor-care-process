@@ -45,7 +45,7 @@
         Department Name
         <input
           v-model.trim="form.department"
-          placeholder="e.g. Department of Computer Science"
+          placeholder="e.g. DCS"
         />
       </label>
 
@@ -126,12 +126,12 @@ async function exportFile() {
     if (form.major) filter.major = form.major
 
     // Academic Year 单文本框 → academicYearFrom / academicYearTo
-    // 文档定义：academicYearFrom 是「学年起始年（含），2024 → 2024-2025 学年」，
-    // 因此用户输入的 "2023-2024" 表示单个学年，from = to = 2023。
-    const yearMatch = form.academicYear.trim().match(/^(\d{4})-\d{4}$/)
+    // 修复：用户输入 "2020-2021" 表示该学年，应当 from=起始年 (2020)、to=终止年 (2021)，
+    // 与后端 query 参数 From / To 的语义一致。之前 from=to=起始年 会让后端拿不到完整学年范围。
+    const yearMatch = form.academicYear.trim().match(/^(\d{4})-(\d{4})$/)
     if (yearMatch) {
       filter.academicYearFrom = yearMatch[1]
-      filter.academicYearTo = yearMatch[1]
+      filter.academicYearTo = yearMatch[2]
     }
 
     const meta = await exportConsultantRecords(filter)
