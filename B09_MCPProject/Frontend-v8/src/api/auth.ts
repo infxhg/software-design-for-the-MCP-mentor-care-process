@@ -1,5 +1,6 @@
 export {
   loginApi,
+  logoutApi,
   getUserInfoApi,
   getInternalUserInfo,
   getUserInfoByIdApi,

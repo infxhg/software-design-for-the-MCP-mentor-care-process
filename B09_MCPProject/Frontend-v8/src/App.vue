@@ -99,6 +99,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { Role } from './types'
 import { getRoleLabel } from './types'
+import { logoutApi } from './api/user'
 import DevFloatingPanel from './devtools/DevFloatingPanel.vue'
 
 const route = useRoute()
@@ -121,7 +122,12 @@ watch(
 const role = computed(() => currentRole.value)
 const roleLabel = computed(() => getRoleLabel(currentRole.value))
 
-function logout() {
+async function logout() {
+  // 接口变更 (B09)：登出前先调 POST /api/user/logout，让后端记录 sys_operation_log
+  // 并使 token 失效。即使后端调用失败（如 token 已过期、网络异常），仍然继续清本地状态
+  // 并跳转登录页，避免用户卡在已登录界面。
+  await logoutApi()
+
   localStorage.removeItem('token')
   localStorage.removeItem('role')
   localStorage.removeItem('userInfo')

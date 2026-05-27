@@ -396,6 +396,28 @@ export async function loginApi(account: string, password: string): Promise<strin
   throw lastError
 }
 
+/**
+ * 登出接口 (B09)：
+ *   POST /api/user/logout
+ *   无请求体；通过 Authorization header 携带 token。
+ *   仅当用户具有 STUDENT 角色时，后端会写 sys_operation_log。
+ *   返回示例：{}（200 即视为成功）。
+ *
+ * 设计要点：
+ *   - 不抛错：即使 token 已经过期 / 后端不可达，调用方依然要能继续清本地状态并跳转登录页，
+ *     所以这里把 fetch 的异常吞掉，返回 boolean 让上层只做日志即可。
+ *   - 不传 skipAuth：登出本身就需要把当前 token 发给后端识别身份。
+ */
+export async function logoutApi(): Promise<boolean> {
+  try {
+    await post('/api/user/logout')
+    return true
+  } catch (error) {
+    console.warn('[user] logout request failed (will still clear local state):', error)
+    return false
+  }
+}
+
 export async function getUserInfoApi(account?: string): Promise<UserInfoDTO> {
   const trimmedAccount = account?.trim()
 

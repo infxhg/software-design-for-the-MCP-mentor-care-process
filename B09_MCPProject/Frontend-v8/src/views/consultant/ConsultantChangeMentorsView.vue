@@ -30,7 +30,9 @@
       <div class="form-row">
         <label>
           Major ID
-          <span class="optional">(optional, used to precisely locate one group)</span>
+          <span class="optional">
+            (required when saving; you may leave it blank only to list all majors first, then refine)
+          </span>
         </label>
         <input
           v-model.trim="majorId"
@@ -348,26 +350,49 @@ async function handleSaveChange(card: GroupCardState) {
 
   try {
     /**
-     * 修改点 (v9)：
-     * 改 mentor 时 groupId 用 group 自身真实的唯一标识（优先 groupKey UUID，
-     * 退化到 group.groupId / id），同时把 group 上携带的 majorId 透传过去，
-     * 防止后端用学年标识形式拿到多个组而无法精确定位。
+     * 修改点 (FIX: B09 change-mentor 接口路径参数 + 必填校验)：
+     * 接口签名：
+     *   PUT /api/mentoring/groups/{groupId}/mentor?majorId=xxx
+     *   例：PUT /api/mentoring/groups/2024-2025-Y1/mentor?majorId=CST
+     *
+     * 1) path 参数 {groupId} 是「学年-年级」形式（如 2024-2025-Y1），
+     *    不是 UUID 形式的 groupKey；groupKey 只是 group 的内部唯一标识，
+     *    这个接口不认 groupKey。
+     *    优先级：displayGroupId → groupId → name → id，
+     *    与上方 displayGroupId() 显示给用户的字段一致（看到啥就传啥），
+     *    groupKey 不再参与路径拼接。
+     *
+     * 2) query 参数 majorId 文档上写「歧义时必填」，但实际后端在缺失时会报错，
+     *    所以这里把它视作「保存时必传」做硬校验：
+     *      - 优先取 group 自身携带的 majorId
+     *      - 没有则退化到 group.major（部分后端把 ID 放这个字段）
+     *      - 再退化到顶部搜索框里用户输入的 majorId
+     *      - 仍解析不到就拦下来提示用户填 Major ID 再搜
+     *    校验通过后两个参数一起传给后端，避免静默丢 query 导致 500。
      */
     const realGroupId =
-      String((card.group as any).groupKey ?? '').trim() ||
+      String((card.group as any).displayGroupId ?? '').trim() ||
       String(card.group.groupId ?? '').trim() ||
+      String(card.group.name ?? '').trim() ||
       String((card.group as any).id ?? '').trim()
 
     const groupMajorId =
       String((card.group as any).majorId ?? '').trim() ||
       String(card.group.major ?? '').trim() ||
-      majorId.value ||
-      undefined
+      majorId.value.trim()
+
+    if (!groupMajorId) {
+      showCardError(
+        card,
+        'Major ID is required to change mentor. Please fill in Major ID in the search box above and search again.',
+      )
+      return
+    }
 
     const updated: any = await changeGroupMentor(
       realGroupId,
       card.newMentorId,
-      groupMajorId || undefined,
+      groupMajorId,
     )
 
     card.group = {
