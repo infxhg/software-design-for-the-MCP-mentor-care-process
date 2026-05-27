@@ -125,12 +125,26 @@ async function handleSearch(): Promise<void> {
     results.value = list
 
     if (list.length === 0) {
-      message.value = 'No matching user or logs found.'
-      isError.value = false
+      // 修改点: 空结果和 403 无权限都统一显示这条提示, 并以红色呈现
+      message.value = 'No matching user or No permission to find.'
+      isError.value = true
     }
   } catch (error: any) {
     results.value = []
-    message.value = `Failed to search logs: ${error?.message || 'Unknown error'}`
+
+    // 修改点: 后端返回 403 (you don't have the permission to access!) 时,
+    // 不再显示原始英文报错, 改为和"没找到"一致的用户友好提示, 红色显示
+    // 优先用 error.status 判断 (request.ts 后续可能附加), 回退到消息文本匹配
+    const status = Number((error as any)?.status)
+    const msg = String(error?.message || '')
+    const isForbidden =
+        status === 403 || /permission|forbidden|无权|权限/i.test(msg)
+
+    if (isForbidden) {
+      message.value = 'No matching user or No permission to find.'
+    } else {
+      message.value = `Failed to search logs: ${msg || 'Unknown error'}`
+    }
     isError.value = true
   } finally {
     isLoading.value = false
