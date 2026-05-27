@@ -11,9 +11,15 @@ public interface MessageMapper extends BaseMapper<Message> {
 
     @Select("SELECT m.id, m.sender_id, m.content, m.create_time, r.is_read " +
             "FROM message_recipient r " +
-            "LEFT JOIN message m ON r.message_id = m.id " +
+            "INNER JOIN message m ON r.message_id = m.id " +
             "WHERE r.receiver_id = #{userId} " +
             "ORDER BY m.create_time DESC")
-    List<Message> selectUserMessages(@Param("userId") String userId);
+    List<Message> selectInboxMessages(@Param("userId") String userId);
+
+    @Select("SELECT m.id, m.sender_id, m.content, m.create_time, 1 AS is_read " +
+            "FROM message m " +
+            "WHERE m.sender_id = #{userId} " +
+            "ORDER BY m.create_time DESC")
+    List<Message> selectSentMessages(@Param("userId") String userId);
 
 }

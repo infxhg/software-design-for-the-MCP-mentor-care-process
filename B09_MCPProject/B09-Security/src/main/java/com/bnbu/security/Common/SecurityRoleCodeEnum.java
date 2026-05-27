@@ -5,7 +5,8 @@ public enum SecurityRoleCodeEnum {
     FACULTY_CONSULTANT("FACULTY_CONSULTANT", "院级顾问"),
     COORDINATOR("COORDINATOR", "协调员"),
     MENTOR("MENTOR", "导师"),
-    STUDENT("STUDENT", "学生");
+    STUDENT("STUDENT", "学生"),
+    SUPPORT_STAFF("SUPPORT_STAFF", "Supporting Staff");
 
     private final String code;
     private final String desc;

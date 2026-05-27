@@ -12,4 +12,10 @@ public class MentorVO {
     private String email;
     private String office;
     private String departmentName; // 冗余一个所属系名称，前端展示更友好
+    /** 主小组展示标签，如 2024-2025-Y1 */
+    private String groupId;
+    /** 导师绑定的所有 MCP 小组展示标签 */
+    private java.util.List<String> groupIds;
+    /** 导师绑定的所有 MCP 小组组织 UUID（groupKey） */
+    private java.util.List<String> groupKeys;
 }

@@ -24,5 +24,9 @@ public class SysOrgUnit {
     @TableField("type")
     private String unitType; // 同理，如果这里原本叫 type，也加上 @TableField("type") 以防万一
 
+    private String path;
+
+    private Integer sortOrder;
+
     private LocalDateTime createTime;
 }

@@ -25,7 +25,16 @@ public class MailServiceImple implements MailService{
         mailSender.send(registerMessage);
     }
 
-
-
-
+    @Override
+    public void sendNotificationMail(String to, String subject, String body) {
+        if (to == null || to.isBlank()) {
+            return;
+        }
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setFrom("shuoran2026career@163.com");
+        message.setTo(to);
+        message.setSubject(subject != null ? subject : "[MCS Notification]");
+        message.setText(body != null ? body : "");
+        mailSender.send(message);
+    }
 }

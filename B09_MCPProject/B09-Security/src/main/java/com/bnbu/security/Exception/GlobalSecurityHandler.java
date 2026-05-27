@@ -19,9 +19,16 @@ public class GlobalSecurityHandler {
 
     @ExceptionHandler(Exception.class)
     public SecurityResult handleGlobalException(Exception e){
-        log.error("【全局异常】", e);           // 重点：打印完整异常
-        e.printStackTrace();                   // 再打印一遍
-        return SecurityResult.error("something went wrong");
+        log.error("【全局异常】", e);
+        String detail = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+        Throwable root = e;
+        while (root.getCause() != null) {
+            root = root.getCause();
+        }
+        if (root.getMessage() != null && !root.getMessage().equals(detail)) {
+            detail = detail + " | " + root.getMessage();
+        }
+        return SecurityResult.error("something went wrong: " + detail);
     }
 
 

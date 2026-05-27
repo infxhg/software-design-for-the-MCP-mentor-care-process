@@ -2,7 +2,12 @@ package com.bnbu.user.Service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.bnbu.user.DTO.CreateFacultyConsultantRequest;
+import com.bnbu.user.DTO.EnsureUserRequest;
+import com.bnbu.user.DTO.FacultyConsultantVO;
+import com.bnbu.user.DTO.UpdateFacultyConsultantRequest;
 import com.bnbu.user.DTO.UserInfoDTO;
+import com.bnbu.user.Common.RoleCodeEnum;
 import com.bnbu.user.Entity.Role;
 import com.bnbu.user.Entity.User;
 import com.bnbu.user.Entity.UserRole;
@@ -14,6 +19,8 @@ import com.bnbu.user.Utils.JwtUtils.JwtUtils;
 import jakarta.annotation.Resource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,6 +59,9 @@ public class UserService extends ServiceImpl<UserMapper, User> implements UserSe
     @Autowired
     private UserMapper userMapper;
 
+    @Autowired
+    private OperationLogService operationLogService;
+
     @Qualifier("redisTemplate")
 
     @Override
@@ -60,9 +70,8 @@ public class UserService extends ServiceImpl<UserMapper, User> implements UserSe
             throw new RuntimeException("please enter your username and password");
         }
         User user = this.getOne(new QueryWrapper<User>()
-                .eq("username", username)
-                .or()
-                .eq("email", username));
+                .and(w -> w.eq("username", username).or().eq("email", username))
+                .eq("is_deleted", 0));
         if (user == null) {
             throw new RuntimeException("账号或密码错误");
         }
@@ -104,32 +113,73 @@ public class UserService extends ServiceImpl<UserMapper, User> implements UserSe
             stringRedisTemplate.opsForSet().add(redisKey, securityAuthorities.toArray(new String[0]));
             stringRedisTemplate.expire(redisKey, 2, TimeUnit.HOURS);
         }
+        operationLogService.recordLogin(user);
         return token;
     }
 
     @Override
-    public UserInfoDTO getUserInfo(String username) {
-        User user = this.getOne(new QueryWrapper<User>()
-                .eq("username", username)
-                .or()
-                .eq("email", username));
-
+    public void logout(String userId) {
+        if (userId == null || userId.isBlank()) {
+            throw new RuntimeException("未获取到当前登录用户");
+        }
+        User user = getUserById(userId.trim());
         if (user == null) {
             throw new RuntimeException("用户不存在");
         }
+        stringRedisTemplate.delete("auth:perms:" + userId.trim());
+        List<String> roles = baseMapper.getRoleCodesByUserId(userId.trim());
+        if (operationLogService.hasStudentRole(roles)) {
+            operationLogService.recordStudentLogout(user);
+        }
+    }
 
-        String userId = user.getId();
-        if (user == null)
+    @Override
+    public UserInfoDTO getUserInfo(String username) {
+        return buildUserInfoDTO(findActiveUserByAccount(username));
+    }
+
+    @Override
+    public UserInfoDTO getUserInfoForCaller(String currentUserId, String username) {
+        User target = findActiveUserByAccount(username);
+        if (currentUserId == null || currentUserId.isBlank()) {
+            throw new RuntimeException("未获取到当前登录用户");
+        }
+        boolean isSelf = currentUserId.equals(target.getId());
+        boolean isAdmin = hasAuthority("ROLE_ADMIN");
+        if (!isSelf && !isAdmin) {
+            throw new RuntimeException("无权查看其他用户的账号信息");
+        }
+        return buildUserInfoDTO(target);
+    }
+
+    private User findActiveUserByAccount(String account) {
+        User user = this.getOne(new QueryWrapper<User>()
+                .and(w -> w.eq("username", account).or().eq("email", account))
+                .eq("is_deleted", 0));
+        if (user == null) {
             throw new RuntimeException("用户不存在");
+        }
+        return user;
+    }
+
+    private UserInfoDTO buildUserInfoDTO(User user) {
+        String userId = user.getId();
         List<String> roles = baseMapper.getRoleCodesByUserId(userId);
         List<String> perms = baseMapper.getPermissionsByUserId(userId);
-
         UserInfoDTO userInfoDTO = new UserInfoDTO();
         userInfoDTO.setUser(user);
         userInfoDTO.setPermissions(perms);
         userInfoDTO.setRoles(roles);
-
         return userInfoDTO;
+    }
+
+    private boolean hasAuthority(String authority) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null) {
+            return false;
+        }
+        return auth.getAuthorities().stream()
+                .anyMatch(a -> authority.equals(a.getAuthority()));
     }
 
     @Override
@@ -295,6 +345,323 @@ public class UserService extends ServiceImpl<UserMapper, User> implements UserSe
         }).collect(Collectors.toList());
     }
 
+    private static final String FACULTY_CONSULTANT_ROLE_CODE = RoleCodeEnum.FACULTY_CONSULTANT.getCode();
+    private static final String SUPPORT_STAFF_ROLE_CODE = RoleCodeEnum.SUPPORT_STAFF.getCode();
+
+    @Override
+    public List<FacultyConsultantVO> listAllFacultyConsultants() {
+        Role consultantRole = getFacultyConsultantRole();
+        List<UserRole> userRoles = userRoleMapper.selectList(
+                new QueryWrapper<UserRole>().eq("role_id", consultantRole.getId()));
+        if (userRoles == null || userRoles.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<String> userIds = userRoles.stream().map(UserRole::getUserId).collect(Collectors.toList());
+        return this.listByIds(userIds).stream()
+                .map(this::toFacultyConsultantVO)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public FacultyConsultantVO getFacultyConsultantById(String id) {
+        User user = requireFacultyConsultantUser(id);
+        return toFacultyConsultantVO(user);
+    }
+
+    @Transactional
+    @Override
+    public FacultyConsultantVO createFacultyConsultant(CreateFacultyConsultantRequest request) {
+        assertUsernameAvailable(request.getUsername(), null);
+        assertEmailAvailable(request.getEmail(), null);
+
+        User user = new User();
+        user.setId(generateUniqueUserId());
+        user.setUsername(request.getUsername().trim());
+        user.setRealName(request.getRealName());
+        user.setPhone(request.getPhone());
+        user.setEmail(request.getEmail().trim());
+        user.setPasswordHash(DigestUtils.md5DigestAsHex(request.getPassword().getBytes()));
+        user.setStatus(request.getStatus() != null ? request.getStatus() : 1);
+        user.setIsDeleted(0);
+        this.save(user);
+
+        bindFacultyConsultantRole(user.getId());
+        return toFacultyConsultantVO(user);
+    }
+
+    @Transactional
+    @Override
+    public FacultyConsultantVO updateFacultyConsultant(String id, UpdateFacultyConsultantRequest request) {
+        User user = requireFacultyConsultantUser(id);
+
+        if (request.getEmail() != null && !request.getEmail().isBlank()) {
+            assertEmailAvailable(request.getEmail().trim(), id);
+            user.setEmail(request.getEmail().trim());
+        }
+        if (request.getRealName() != null) {
+            user.setRealName(request.getRealName());
+        }
+        if (request.getPhone() != null) {
+            user.setPhone(request.getPhone());
+        }
+        if (request.getStatus() != null) {
+            user.setStatus(request.getStatus());
+        }
+        if (request.getPassword() != null && !request.getPassword().isBlank()) {
+            user.setPasswordHash(DigestUtils.md5DigestAsHex(request.getPassword().getBytes()));
+        }
+
+        this.updateById(user);
+        return toFacultyConsultantVO(this.getById(id));
+    }
+
+    @Transactional
+    @Override
+    public void deleteFacultyConsultant(String id) {
+        requireFacultyConsultantUser(id);
+        userRoleMapper.delete(new QueryWrapper<UserRole>().eq("user_id", id));
+        this.removeById(id);
+    }
+
+    private Role getFacultyConsultantRole() {
+        Role role = roleMapper.selectOne(new QueryWrapper<Role>().eq("role_code", FACULTY_CONSULTANT_ROLE_CODE));
+        if (role == null) {
+            throw new RuntimeException("System error: FACULTY_CONSULTANT role not found");
+        }
+        return role;
+    }
+
+    private void bindFacultyConsultantRole(String userId) {
+        Role role = getFacultyConsultantRole();
+        UserRole userRole = new UserRole();
+        userRole.setUserId(userId);
+        userRole.setRoleId(role.getId());
+        userRoleMapper.insert(userRole);
+    }
+
+    private User requireFacultyConsultantUser(String userId) {
+        User user = this.getById(userId);
+        if (user == null) {
+            throw new RuntimeException("Faculty consultant not found");
+        }
+        List<String> roleCodes = baseMapper.getRoleCodesByUserId(userId);
+        if (roleCodes == null || !roleCodes.contains(FACULTY_CONSULTANT_ROLE_CODE)) {
+            throw new RuntimeException("User is not a faculty consultant");
+        }
+        return user;
+    }
+
+    private void assertUsernameAvailable(String username, String excludeUserId) {
+        QueryWrapper<User> wrapper = new QueryWrapper<User>().eq("username", username.trim());
+        if (excludeUserId != null) {
+            wrapper.ne("id", excludeUserId);
+        }
+        if (this.count(wrapper) > 0) {
+            throw new RuntimeException("Username already exists");
+        }
+    }
+
+    private void assertEmailAvailable(String email, String excludeUserId) {
+        QueryWrapper<User> wrapper = new QueryWrapper<User>().eq("email", email.trim());
+        if (excludeUserId != null) {
+            wrapper.ne("id", excludeUserId);
+        }
+        if (this.count(wrapper) > 0) {
+            throw new RuntimeException("Email already exists");
+        }
+    }
+
+    private FacultyConsultantVO toFacultyConsultantVO(User user) {
+        FacultyConsultantVO vo = new FacultyConsultantVO();
+        vo.setId(user.getId());
+        vo.setUsername(user.getUsername());
+        vo.setRealName(user.getRealName());
+        vo.setPhone(user.getPhone());
+        vo.setEmail(user.getEmail());
+        vo.setStatus(user.getStatus());
+        vo.setCreateTime(user.getCreateTime());
+        vo.setUpdateTime(user.getUpdateTime());
+        return vo;
+    }
+
+    @Override
+    public List<FacultyConsultantVO> listAllSupportingStaff() {
+        Role staffRole = getRoleByCode(SUPPORT_STAFF_ROLE_CODE);
+        List<UserRole> userRoles = userRoleMapper.selectList(
+                new QueryWrapper<UserRole>().eq("role_id", staffRole.getId()));
+        if (userRoles == null || userRoles.isEmpty()) {
+            return new ArrayList<>();
+        }
+        List<String> userIds = userRoles.stream().map(UserRole::getUserId).collect(Collectors.toList());
+        return this.listByIds(userIds).stream()
+                .map(this::toFacultyConsultantVO)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public FacultyConsultantVO getSupportingStaffById(String id) {
+        return toFacultyConsultantVO(requireRoleUser(id, SUPPORT_STAFF_ROLE_CODE));
+    }
+
+    @Transactional
+    @Override
+    public FacultyConsultantVO createSupportingStaff(CreateFacultyConsultantRequest request) {
+        assertUsernameAvailable(request.getUsername(), null);
+        assertEmailAvailable(request.getEmail(), null);
+
+        User user = new User();
+        user.setId(generateUniqueUserId());
+        user.setUsername(request.getUsername().trim());
+        user.setRealName(request.getRealName());
+        user.setPhone(request.getPhone());
+        user.setEmail(request.getEmail().trim());
+        user.setPasswordHash(DigestUtils.md5DigestAsHex(request.getPassword().getBytes()));
+        user.setStatus(request.getStatus() != null ? request.getStatus() : 1);
+        user.setIsDeleted(0);
+        this.save(user);
+
+        bindRole(user.getId(), SUPPORT_STAFF_ROLE_CODE);
+        return toFacultyConsultantVO(user);
+    }
+
+    @Transactional
+    @Override
+    public FacultyConsultantVO updateSupportingStaff(String id, UpdateFacultyConsultantRequest request) {
+        User user = requireRoleUser(id, SUPPORT_STAFF_ROLE_CODE);
+
+        if (request.getEmail() != null && !request.getEmail().isBlank()) {
+            assertEmailAvailable(request.getEmail().trim(), id);
+            user.setEmail(request.getEmail().trim());
+        }
+        if (request.getRealName() != null) {
+            user.setRealName(request.getRealName());
+        }
+        if (request.getPhone() != null) {
+            user.setPhone(request.getPhone());
+        }
+        if (request.getStatus() != null) {
+            user.setStatus(request.getStatus());
+        }
+        if (request.getPassword() != null && !request.getPassword().isBlank()) {
+            user.setPasswordHash(DigestUtils.md5DigestAsHex(request.getPassword().getBytes()));
+        }
+
+        this.updateById(user);
+        return toFacultyConsultantVO(this.getById(id));
+    }
+
+    @Transactional
+    @Override
+    public void deleteSupportingStaff(String id) {
+        requireRoleUser(id, SUPPORT_STAFF_ROLE_CODE);
+        userRoleMapper.delete(new QueryWrapper<UserRole>().eq("user_id", id));
+        this.removeById(id);
+    }
+
+    private Role getRoleByCode(String roleCode) {
+        Role role = roleMapper.selectOne(new QueryWrapper<Role>().eq("role_code", roleCode));
+        if (role == null) {
+            throw new RuntimeException("System error: role not found: " + roleCode);
+        }
+        return role;
+    }
+
+    private void bindRole(String userId, String roleCode) {
+        Role role = getRoleByCode(roleCode);
+        UserRole userRole = new UserRole();
+        userRole.setUserId(userId);
+        userRole.setRoleId(role.getId());
+        userRoleMapper.insert(userRole);
+    }
+
+    private User requireRoleUser(String userId, String roleCode) {
+        User user = this.getById(userId);
+        if (user == null) {
+            throw new RuntimeException("User not found");
+        }
+        List<String> roleCodes = baseMapper.getRoleCodesByUserId(userId);
+        if (roleCodes == null || !roleCodes.stream().anyMatch(roleCode::equalsIgnoreCase)) {
+            throw new RuntimeException("User does not have required role: " + roleCode);
+        }
+        if (user.getStatus() != null && user.getStatus() == 0) {
+            throw new RuntimeException("User account is disabled");
+        }
+        return user;
+    }
+
+    @Override
+    public User requireStudentUser(String studentId) {
+        if (studentId == null || studentId.isBlank()) {
+            throw new RuntimeException("studentId is required");
+        }
+        return requireRoleUser(studentId.trim(), RoleCodeEnum.STUDENT.getCode());
+    }
+
+    @Transactional
+    @Override
+    public User ensureUser(EnsureUserRequest request) {
+        if (request.getRoleCode() == null || request.getRoleCode().isBlank()) {
+            throw new RuntimeException("roleCode is required");
+        }
+        String userId = request.getId() != null ? request.getId().trim() : "";
+        boolean generatedId = false;
+        if (userId.isBlank()) {
+            if ("STUDENT".equalsIgnoreCase(request.getRoleCode())) {
+                String username = request.getUsername() != null ? request.getUsername().trim() : "";
+                if (username.matches("\\d{9}")) {
+                    userId = username;
+                } else {
+                    throw new RuntimeException("STUDENT requires a 9-digit id from import file");
+                }
+            } else {
+                userId = generateUniqueUserId();
+                generatedId = true;
+            }
+        } else if ("STUDENT".equalsIgnoreCase(request.getRoleCode()) && !userId.matches("\\d{9}")) {
+            throw new RuntimeException("STUDENT id must be exactly 9 digits");
+        }
+        // #region agent log
+        debugEnsureUserLog(request.getRoleCode(), request.getId(), userId, generatedId);
+        // #endregion
+        User existing = this.getById(userId);
+        if (existing == null) {
+            if (request.getUsername() == null || request.getUsername().isBlank()) {
+                throw new RuntimeException("username is required for new user");
+            }
+            assertUsernameAvailable(request.getUsername(), null);
+            if (request.getEmail() != null && !request.getEmail().isBlank()) {
+                assertEmailAvailable(request.getEmail(), null);
+            }
+            User user = new User();
+            user.setId(userId);
+            user.setUsername(request.getUsername().trim());
+            user.setRealName(request.getRealName());
+            user.setPhone(request.getPhone());
+            user.setEmail(request.getEmail());
+            String pwd = request.getPassword() != null ? request.getPassword() : "123456";
+            user.setPasswordHash(DigestUtils.md5DigestAsHex(pwd.getBytes()));
+            user.setStatus(request.getStatus() != null ? request.getStatus() : 1);
+            user.setIsDeleted(0);
+            this.save(user);
+            existing = user;
+        } else {
+            if (request.getRealName() != null) {
+                existing.setRealName(request.getRealName());
+            }
+            if (request.getEmail() != null && !request.getEmail().isBlank()) {
+                assertEmailAvailable(request.getEmail(), userId);
+                existing.setEmail(request.getEmail().trim());
+            }
+            this.updateById(existing);
+        }
+
+        List<String> roles = baseMapper.getRoleCodesByUserId(userId);
+        if (roles == null || !roles.contains(request.getRoleCode())) {
+            bindRole(userId, request.getRoleCode());
+        }
+        return this.getById(userId);
+    }
+
     /**
      * 生成唯一的 9 位纯数字用户 ID（100000000 ~ 999999999）
      * 采用重试机制防止极低概率的 ID 碰撞
@@ -313,4 +680,26 @@ public class UserService extends ServiceImpl<UserMapper, User> implements UserSe
         }
         throw new RuntimeException("系统繁忙，用户 ID 生成失败，请重试");
     }
+
+    // #region agent log
+    private static void debugEnsureUserLog(String roleCode, String requestId, String resolvedUserId, boolean generatedId) {
+        try {
+            String json = String.format(
+                    "{\"sessionId\":\"6b255a\",\"hypothesisId\":\"H2\",\"location\":\"UserService.ensureUser\","
+                            + "\"message\":\"resolved user id\",\"data\":{\"roleCode\":\"%s\",\"requestId\":\"%s\","
+                            + "\"resolvedUserId\":\"%s\",\"generatedId\":%s},\"timestamp\":%d}%n",
+                    roleCode != null ? roleCode : "",
+                    requestId != null ? requestId : "",
+                    resolvedUserId != null ? resolvedUserId : "",
+                    generatedId,
+                    System.currentTimeMillis());
+            java.nio.file.Files.writeString(
+                    java.nio.file.Path.of("/Users/houshuoran/IdeaProjects/B09/.cursor/debug-6b255a.log"),
+                    json,
+                    java.nio.file.StandardOpenOption.CREATE,
+                    java.nio.file.StandardOpenOption.APPEND);
+        } catch (Exception ignored) {
+        }
+    }
+    // #endregion
 }

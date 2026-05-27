@@ -11,4 +11,6 @@ public interface McpRecordService extends IService<McpRecord> {
      * @return 成功与否
      */
     boolean saveOrUpdateRecord(McpRecord record, String currentMentorId);
+
+    boolean saveOrUpdateRecord(McpRecord record, String currentUserId, boolean coordinatorOverride);
 }

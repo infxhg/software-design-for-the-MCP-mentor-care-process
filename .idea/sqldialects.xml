@@ -2,10 +2,21 @@
 <project version="4">
   <component name="SqlDialectMappings">
     <file url="file://$PROJECT_DIR$/B09_MCPProject/Mentoring-Service/src/main/resources/Mentoringinitialization.sql" dialect="MySQL" />
+    <file url="file://$PROJECT_DIR$/B09_MCPProject/Mentoring-Service/src/main/resources/db/drop_mcp_student_ext_major_id.sql" dialect="MySQL" />
+    <file url="file://$PROJECT_DIR$/B09_MCPProject/Mentoring-Service/src/main/resources/mcp_schema_extension.sql" dialect="MySQL" />
+    <file url="file://$PROJECT_DIR$/B09_MCPProject/Organizational-Service/src/main/resources/db/migrate_groups_2024_y1_cst_from_fst.sql" dialect="MySQL" />
+    <file url="file://$PROJECT_DIR$/B09_MCPProject/Organizational-Service/src/main/resources/db/migrate_groups_under_faculty_to_major.sql" dialect="MySQL" />
+    <file url="file://$PROJECT_DIR$/B09_MCPProject/Organizational-Service/src/main/resources/db/org_schema.sql" dialect="MySQL" />
+    <file url="file://$PROJECT_DIR$/B09_MCPProject/Organizational-Service/src/main/resources/db/patch_org_unit_columns.sql" dialect="MySQL" />
+    <file url="file://$PROJECT_DIR$/B09_MCPProject/User-Service/src/main/resources/add_support_staff_role.sql" dialect="MySQL" />
+    <file url="file://$PROJECT_DIR$/B09_MCPProject/User-Service/src/main/resources/message_role_permission_patch.sql" dialect="MySQL" />
     <file url="file://$PROJECT_DIR$/B09_MCPProject/User-Service/src/main/resources/orgANDUnit.sql" dialect="MySQL" />
     <file url="file://$PROJECT_DIR$/B09_MCPProject/User-Service/src/main/resources/roleANDpermission.sql" dialect="MySQL" />
+    <file url="file://$PROJECT_DIR$/B09_MCPProject/User-Service/src/main/resources/seed_test_accounts.sql" dialect="MySQL" />
     <file url="file://$PROJECT_DIR$/B09_MCPProject/User-Service/src/main/resources/setMajor.sql" dialect="MySQL" />
     <file url="file://$PROJECT_DIR$/B09_MCPProject/User-Service/src/main/resources/setStudentrole.sql" dialect="MySQL" />
+    <file url="file://$PROJECT_DIR$/B09_MCPProject/User-Service/src/main/resources/sys_feedback.sql" dialect="MySQL" />
+    <file url="file://$PROJECT_DIR$/B09_MCPProject/User-Service/src/main/resources/sys_operation_log.sql" dialect="MySQL" />
     <file url="file://$PROJECT_DIR$/B09_MCPProject/User-Service/src/main/resources/userInfoPerms.sql" dialect="MySQL" />
   </component>
 </project>

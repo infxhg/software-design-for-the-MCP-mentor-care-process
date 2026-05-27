@@ -1,6 +1,7 @@
 package com.bnbu.user.Entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.AllArgsConstructor;
@@ -8,6 +9,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 消息内容实体 - 发件箱模型
@@ -42,5 +44,11 @@ public class Message {
      */
     private LocalDateTime createTime;
 
+    /** 收件箱未读状态（发件箱消息固定为已读） */
+    @TableField(exist = false)
+    private Integer isRead;
 
+    /** 收件人 ID 列表（列表/详情接口填充） */
+    @TableField(exist = false)
+    private List<String> recipientIds;
 }

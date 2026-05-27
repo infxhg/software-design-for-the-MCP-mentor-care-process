@@ -1,6 +1,6 @@
 -- ==========================================================
 -- 1. 初始化【角色表 sys_role】
--- 根据 MCP 的组织架构，设置 5 个核心角色及其数据范围
+-- 根据 MCP 的组织架构，设置 6 个核心角色及其数据范围
 -- ==========================================================
 DELETE FROM sys_role; -- 清理旧数据（仅限开发环境）
 
@@ -9,7 +9,8 @@ INSERT INTO `sys_role` (`id`, `role_code`, `role_name`, `data_scope`, `status`, 
                                                                                                   ('ROLE_000000000000000000000000002', 'FACULTY_CONSULTANT', '院级顾问', 'DEPT', 1, 0),
                                                                                                   ('ROLE_000000000000000000000000003', 'COORDINATOR', '系协调员', 'MAJOR', 1, 0),
                                                                                                   ('ROLE_000000000000000000000000004', 'MENTOR', 'MCP导师', 'MCP', 1, 0),
-                                                                                                  ('ROLE_000000000000000000000000005', 'STUDENT', '学生', 'SELF', 1, 0);
+                                                                                                  ('ROLE_000000000000000000000000005', 'STUDENT', '学生', 'SELF', 1, 0),
+                                                                                                  ('ROLE_000000000000000000000000006', 'SUPPORT_STAFF', 'Supporting Staff', 'ALL', 1, 0);
 
 
 -- ==========================================================
@@ -52,11 +53,13 @@ INSERT INTO `sys_role_permission` (`role_id`, `permission_id`) VALUES
                                                                    ('ROLE_000000000000000000000000002', 'PERM_000000000000000000000000010'), -- data:import
                                                                    ('ROLE_000000000000000000000000002', 'PERM_000000000000000000000000011'), -- mentor:change
                                                                    ('ROLE_000000000000000000000000002', 'PERM_000000000000000000000000012'), -- user:search
+                                                                   ('ROLE_000000000000000000000000002', 'PERM_000000000000000000000000021'), -- message:communicate
                                                                    ('ROLE_000000000000000000000000002', 'PERM_000000000000000000000000024'); -- record:export
 
 -- 3.3【系协调员 COORDINATOR】：系内协调和特殊案例处理
 INSERT INTO `sys_role_permission` (`role_id`, `permission_id`) VALUES
                                                                    ('ROLE_000000000000000000000000003', 'PERM_000000000000000000000000012'), -- user:search
+                                                                   ('ROLE_000000000000000000000000003', 'PERM_000000000000000000000000021'), -- message:communicate
                                                                    ('ROLE_000000000000000000000000003', 'PERM_000000000000000000000000022'), -- record:edit
                                                                    ('ROLE_000000000000000000000000003', 'PERM_000000000000000000000000023'), -- case:forward
                                                                    ('ROLE_000000000000000000000000003', 'PERM_000000000000000000000000024'); -- record:export
@@ -74,6 +77,11 @@ INSERT INTO `sys_role_permission` (`role_id`, `permission_id`) VALUES
 INSERT INTO `sys_role_permission` (`role_id`, `permission_id`) VALUES
                                                                    ('ROLE_000000000000000000000000005', 'PERM_000000000000000000000000020'), -- appointment:create
                                                                    ('ROLE_000000000000000000000000005', 'PERM_000000000000000000000000021'); -- message:communicate
+
+-- 3.6【Supporting Staff SUPPORT_STAFF】：全校范围检索学生信息、查看系统日志
+INSERT INTO `sys_role_permission` (`role_id`, `permission_id`) VALUES
+                                                                   ('ROLE_000000000000000000000000006', 'PERM_000000000000000000000000012'), -- user:search
+                                                                   ('ROLE_000000000000000000000000006', 'PERM_000000000000000000000000002'); -- log:view
 
 
 

@@ -24,8 +24,13 @@ public class Result {
     }
 
     public static Result error(String message) {
+        return fail(500, message);
+    }
+
+    /** 业务错误（非 HTTP 500），前端 unwrap 时不应一律当作服务器故障 */
+    public static Result fail(int code, String message) {
         Result result = new Result();
-        result.setCode(500);
+        result.setCode(code);
         result.setMessage(message);
         return result;
     }
