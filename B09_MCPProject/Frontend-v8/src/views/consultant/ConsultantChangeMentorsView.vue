@@ -30,9 +30,7 @@
       <div class="form-row">
         <label>
           Major ID
-          <span class="optional">
-            (required when saving; you may leave it blank only to list all majors first, then refine)
-          </span>
+          <span class="optional">(optional, used to precisely locate one group during search)</span>
         </label>
         <input
           v-model.trim="majorId"
@@ -139,7 +137,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import {
-  changeGroupMentor,
+  changeGroupMentorByKey,
   searchGroup,
   type GroupInfo,
 } from '../../api/consultant'
@@ -350,55 +348,39 @@ async function handleSaveChange(card: GroupCardState) {
 
   try {
     /**
-     * 修改点 (FIX: B09 change-mentor 接口路径参数 + 必填校验)：
+     * 修改点 (FIX: 切到按 groupKey 改导师接口)：
      * 接口签名：
-     *   PUT /api/mentoring/groups/{groupId}/mentor?majorId=xxx
-     *   例：PUT /api/mentoring/groups/2024-2025-Y1/mentor?majorId=CST
+     *   PUT /api/mentoring/groups/by-key/{groupKey}/mentor
+     *   Body: { mentorId }
      *
-     * 1) path 参数 {groupId} 是「学年-年级」形式（如 2024-2025-Y1），
-     *    不是 UUID 形式的 groupKey；groupKey 只是 group 的内部唯一标识，
-     *    这个接口不认 groupKey。
-     *    优先级：displayGroupId → groupId → name → id，
-     *    与上方 displayGroupId() 显示给用户的字段一致（看到啥就传啥），
-     *    groupKey 不再参与路径拼接。
+     * groupKey 是 group 全局唯一 UUID（如 aabbccdd11112222333344445555aa01），
+     * 不需要 majorId 配合就能精确定位组，所以这里：
+     *   - 不再用学年-年级 form 的 groupId 拼路径
+     *   - 不再做 majorId 必传校验
+     *   - majorId 只在上面的 search 阶段用于在多 major 候选里精确缩窄
      *
-     * 2) query 参数 majorId 文档上写「歧义时必填」，但实际后端在缺失时会报错，
-     *    所以这里把它视作「保存时必传」做硬校验：
-     *      - 优先取 group 自身携带的 majorId
-     *      - 没有则退化到 group.major（部分后端把 ID 放这个字段）
-     *      - 再退化到顶部搜索框里用户输入的 majorId
-     *      - 仍解析不到就拦下来提示用户填 Major ID 再搜
-     *    校验通过后两个参数一起传给后端，避免静默丢 query 导致 500。
+     * groupKey 取值优先级：group.groupKey → group.id
+     * （部分后端返回时把 UUID 放在 id 字段；groupId 字段反而是学年-年级 form，
+     *  不能用于这个接口）。
      */
-    const realGroupId =
-      String((card.group as any).displayGroupId ?? '').trim() ||
-      String(card.group.groupId ?? '').trim() ||
-      String(card.group.name ?? '').trim() ||
+    const groupKey =
+      String((card.group as any).groupKey ?? '').trim() ||
       String((card.group as any).id ?? '').trim()
 
-    const groupMajorId =
-      String((card.group as any).majorId ?? '').trim() ||
-      String(card.group.major ?? '').trim() ||
-      majorId.value.trim()
-
-    if (!groupMajorId) {
+    if (!groupKey) {
       showCardError(
         card,
-        'Major ID is required to change mentor. Please fill in Major ID in the search box above and search again.',
+        'Group key is missing for this group, cannot change mentor.',
       )
       return
     }
 
-    const updated: any = await changeGroupMentor(
-      realGroupId,
-      card.newMentorId,
-      groupMajorId,
-    )
+    const updated: any = await changeGroupMentorByKey(groupKey, card.newMentorId)
 
     card.group = {
       ...card.group,
       ...updated,
-      groupId: updated?.groupId || realGroupId,
+      groupKey: (updated && (updated as any).groupKey) || groupKey,
       mentorId: updated?.mentorId || card.newMentorId,
       currentMentorId: updated?.currentMentorId || card.newMentorId,
     } as any

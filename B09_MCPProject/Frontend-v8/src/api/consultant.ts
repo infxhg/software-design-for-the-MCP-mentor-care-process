@@ -2,6 +2,7 @@ import { del, post, put, unwrap } from './request'
 import {
   addStudentToGroup,
   changeGroupMentor,
+  changeGroupMentorByKey,
   exportConsultantRecords,
   exportGroupRecords,
   exportGroupRecordsForConsultant,
@@ -25,6 +26,7 @@ import { getOrgTree, isOrgType, searchMentors, type MentorInfo, type OrgUnit } f
 export {
   addStudentToGroup,
   changeGroupMentor,
+  changeGroupMentorByKey,
   exportConsultantRecords,
   exportRecordsByFilter,
   getGroup,

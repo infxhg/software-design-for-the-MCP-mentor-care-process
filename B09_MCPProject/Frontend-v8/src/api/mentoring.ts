@@ -743,6 +743,35 @@ export async function changeGroupMentor(
 }
 
 /**
+ * 修改点 (NEW)：按 groupKey 修改组导师（FC 专用）。
+ *   PUT /api/mentoring/groups/by-key/{groupKey}/mentor
+ *   Body: { mentorId }
+ *
+ * 与 changeGroupMentor(groupId, mentorId, majorId?) 的区别：
+ *   - 这个接口直接用全局唯一的 groupKey (UUID)，不需要 majorId 配合就能精确定位组，
+ *     适合 ConsultantChangeMentorsView 这种「按 groupId 列出多个候选组、然后逐张
+ *     卡片修改导师」的场景：每张卡片自带 groupKey，避免同 groupId 跨 major 的歧义。
+ *   - 老接口仍保留供 ConsultantGroupDetailView 等其它入口继续用。
+ *
+ * 200 响应 data 形如：
+ *   { groupId, name, groupKey, groupLabel, parentId, facultyOrgId, mentorId }
+ * 归一化后返回 GroupInfo。
+ */
+export async function changeGroupMentorByKey(
+  groupKey: string,
+  mentorId: string,
+): Promise<GroupInfo> {
+  const key = String(groupKey || '').trim()
+  if (!key) throw new Error('groupKey is required')
+
+  const res = await put<any>(
+    `/api/mentoring/groups/by-key/${encodeURIComponent(key)}/mentor`,
+    { mentorId },
+  )
+  return normalizeGroup(unwrap(res))
+}
+
+/**
  * 修改点 (NEW)：Faculty Consultant 通过 Group ID 查找该组对应的 mentor。
  *
  * 接口链路（均来自 B09 接口文档，无新增后端接口）：
