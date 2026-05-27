@@ -74,17 +74,41 @@ export function getRoleAwareStudentIdValidationMessage(value: unknown, role = ge
   return getStrictStudentIdValidationMessage(id)
 }
 
-function buildFallbackStudentProfile(studentId: string): StudentInfo {
-  const id = String(studentId || '').trim()
-  return normalizeOrgStudent(
-    {
-      id,
-      studentId: id,
-      username: id,
-      realName: id,
-    },
-    id,
+/**
+ * 修改点 (FIX)：原来的 buildFallbackStudentProfile 会在所有真实接口都失败后，
+ * 用「学生 ID」同时填充 username、realName、id 字段，伪造一条"成功"记录返回给前端。
+ *
+ * 这导致 FC 搜索不属于自己 faculty 的学生时：
+ *   1) 后端正确抛出 403 权限错误
+ *   2) 前端 catch 后吞掉，转头返回一条假学生（id=username=realName）
+ *   3) 页面显示三列全是 ID，且没有任何错误提示
+ *
+ * 修复后：
+ *   - 不再生成"假学生"，权限错误必须显式向上抛出；
+ *   - 真正"未找到"的情况返回 null，让页面显示 "No matching student record is found."；
+ *   - 正常成功路径（接口正常返回学生对象）完全不受影响，仍走 normalizeOrgStudent，
+ *     username / realName 显示后端真实值。
+ */
+function isPermissionError(err: any): boolean {
+  if (!err) return false
+  if (err.status === 403) return true
+  const msg = String(err.message || '').toLowerCase()
+  // 兜底：后端 message 里可能直接写 "Forbidden" / "permission" / "无权" / "权限"
+  return (
+    msg.includes('403') ||
+    msg.includes('forbidden') ||
+    msg.includes('permission') ||
+    msg.includes('not allowed') ||
+    /无权|权限|没有权限/.test(String(err.message || ''))
   )
+}
+
+function makePermissionError(): Error & { status: number } {
+  const err = new Error(
+    'You do not have permission to view this student. They may belong to a faculty outside your scope.',
+  ) as Error & { status: number }
+  err.status = 403
+  return err
 }
 
 function getStoredFrontendRole(): string {
@@ -347,14 +371,20 @@ export async function fetchRecordsForStudent(
         Object.keys(params).length ? params : undefined,
       )
       return (unwrap(res) || []).map(normalizeRecord)
-    } catch {
+    } catch (err: any) {
+      // 修改点 (FIX)：以前不管什么错都吞掉走 fallback，最后返回 [] —— 导致 FC 搜
+      // 不属于自己 faculty 的学生时，访谈记录区只显示 "No interview records found."，
+      // 看不出来其实是 403 权限错误。
+      // 现在权限错误必须向上抛出，让页面显示明确的"无权限"提示。
+      if (isPermissionError(err)) throw err
       try {
         const res = await get<any[]>(
           `/records/student/${encodeURIComponent(id)}`,
           Object.keys(params).length ? params : undefined,
         )
         return (unwrap(res) || []).map(normalizeRecord)
-      } catch {
+      } catch (err2: any) {
+        if (isPermissionError(err2)) throw err2
         return []
       }
     }
@@ -482,20 +512,25 @@ export async function lookupStudent(studentId: string): Promise<StudentInfo | nu
   }
 
   if (role === 'coordinator') {
+    // 修改点 (FIX)：跟踪是否遇到过 403。如果三条查询通道里有任何一条因权限被拒，
+    // 但又都没能找到学生 → 抛出"无权限"错误，而不是伪造一条假记录。
+    let sawPermissionError = false
+
     try {
       const member = await getMyDeptMember(id)
       const student = normalizeStudentPayload(member, id)
       if (student) return student
-    } catch {
-      // continue
+    } catch (err: any) {
+      if (isPermissionError(err)) sawPermissionError = true
+      // 其它错误（如 500 / 网络抖动）保持原行为：忽略，继续尝试下一条通道
     }
 
     try {
       const student = await lookupOrgStudent(id)
       const normalized = normalizeStudentPayload(student, id)
       if (normalized) return normalized
-    } catch {
-      // continue
+    } catch (err: any) {
+      if (isPermissionError(err)) sawPermissionError = true
     }
 
     try {
@@ -507,21 +542,26 @@ export async function lookupStudent(studentId: string): Promise<StudentInfo | nu
         return candidates.includes(id)
       })
       if (match) return normalizeStudentPayload(match, id)
-    } catch {
-      // continue
+    } catch (err: any) {
+      if (isPermissionError(err)) sawPermissionError = true
     }
 
-    // Case-linked students may sit outside coordinator dept lookup APIs.
-    return buildFallbackStudentProfile(id)
+    if (sawPermissionError) throw makePermissionError()
+    return null
   }
 
   if (role === 'consultant') {
+    // 修改点 (FIX)：同 coordinator 分支 —— FC 搜不属于自己 faculty 的学生时，
+    // 后端会抛 403，这里捕获并最终向上抛"权限错误"，而不是返回 buildFallbackStudentProfile
+    // (那会让页面显示 username=realName=studentId，没有任何错误提示)。
+    let sawPermissionError = false
+
     try {
       const student = await lookupOrgStudent(id)
       const normalized = normalizeStudentPayload(student, id)
       if (normalized) return normalized
-    } catch {
-      // continue
+    } catch (err: any) {
+      if (isPermissionError(err)) sawPermissionError = true
     }
 
     try {
@@ -533,11 +573,12 @@ export async function lookupStudent(studentId: string): Promise<StudentInfo | nu
         return candidates.includes(id)
       })
       if (match) return normalizeStudentPayload(match, id)
-    } catch {
-      // continue
+    } catch (err: any) {
+      if (isPermissionError(err)) sawPermissionError = true
     }
 
-    return buildFallbackStudentProfile(id)
+    if (sawPermissionError) throw makePermissionError()
+    return null
   }
 
   try {

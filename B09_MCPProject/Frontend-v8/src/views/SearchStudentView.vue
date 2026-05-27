@@ -286,16 +286,32 @@ async function searchStudent() {
        */
       interviewRecords.value = await fetchRecordsForStudent(input, buildRecordFilter())
     } catch (recordErr: any) {
-      recordMessage.value = recordErr.message?.includes('403')
-          ? 'Authorization warning: You do not have permission to view interview records.'
-          : 'Interview records could not be loaded.'
+      // 修改点 (FIX)：同主搜索 catch，优先用 err.status 判断 403。
+      const status = Number(recordErr?.status)
+      const msg = String(recordErr?.message || '')
+      recordMessage.value =
+          status === 403 || msg.includes('403') || /forbidden|permission|无权|权限/i.test(msg)
+              ? 'Authorization warning: You do not have permission to view interview records for this student.'
+              : 'Interview records could not be loaded.'
       isRecordError.value = true
     }
   } catch (err: any) {
-    if (err.message?.includes('401')) {
+    /**
+     * 修改点 (FIX)：原代码只看 err.message?.includes('403')，而 request.ts 抛出的
+     * Error.message 只是后端 JSON 里的 message 文本（比如 "无权限访问该学生"），
+     * 不含 "403" 这种数字字面量 —— 所以这个分支以前几乎永远走不到，403 全被当成
+     * "未找到学生" 处理掉。
+     *
+     * 现在 request.ts 已经把 HTTP status 挂到 err.status 上，这里优先用 err.status
+     * 来判断；同时保留 message 的兜底匹配以兼容老错误流。
+     */
+    const status = Number(err?.status)
+    const msg = String(err?.message || '')
+    if (status === 401 || msg.includes('401')) {
       message.value = 'Session expired. Please login again.'
-    } else if (err.message?.includes('403')) {
-      message.value = 'Authorization warning: You do not have permission to view this student.'
+    } else if (status === 403 || msg.includes('403') || /forbidden|permission|无权|权限/i.test(msg)) {
+      message.value =
+          'Authorization warning: You do not have permission to view this student. They may belong to a faculty outside your scope.'
     } else {
       message.value = 'No matching student record is found.'
     }
@@ -330,9 +346,13 @@ async function reloadRecords() {
   try {
     interviewRecords.value = await fetchRecordsForStudent(input, buildRecordFilter())
   } catch (recordErr: any) {
-    recordMessage.value = recordErr.message?.includes('403')
-        ? 'Authorization warning: You do not have permission to view interview records.'
-        : 'Interview records could not be loaded.'
+    // 修改点 (FIX)：同上，优先用 err.status 判断 403。
+    const status = Number(recordErr?.status)
+    const msg = String(recordErr?.message || '')
+    recordMessage.value =
+        status === 403 || msg.includes('403') || /forbidden|permission|无权|权限/i.test(msg)
+            ? 'Authorization warning: You do not have permission to view interview records for this student.'
+            : 'Interview records could not be loaded.'
     isRecordError.value = true
   } finally {
     isRecordLoading.value = false

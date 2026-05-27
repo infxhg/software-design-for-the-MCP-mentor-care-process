@@ -153,7 +153,15 @@ export async function request<T = any>(
   }
 
   if (!response.ok) {
-    throw new Error(await parseErrorMessage(response))
+    // 修改点 (FIX)：把 HTTP status 挂到 Error 对象上（新增 .status 属性，不影响 .message）。
+    // 之前的 Error 只带后端 JSON 里的 message 文本（如 "无权限访问该学生"），
+    // 调用层无法可靠判断 401/403/500 等情况，导致 SearchStudent 这类页面要么
+    // 误把权限错误显示成 "未找到学生"，要么走兜底逻辑伪造一条假学生记录。
+    // 现在 catch 块里可以直接 err.status === 403 来判定权限错误。
+    const msg = await parseErrorMessage(response)
+    const error = new Error(msg) as Error & { status?: number }
+    error.status = response.status
+    throw error
   }
 
   const contentType = response.headers.get('content-type') || ''
@@ -271,7 +279,11 @@ export async function downloadBlobWithHeaders(
   }
 
   if (!response.ok) {
-    throw new Error(await parseErrorMessage(response))
+    // 修改点 (FIX)：同 request() 的修复，把 HTTP status 挂到 Error 上。
+    const msg = await parseErrorMessage(response)
+    const error = new Error(msg) as Error & { status?: number }
+    error.status = response.status
+    throw error
   }
 
   const contentType = response.headers.get('content-type') || ''
