@@ -5,7 +5,7 @@
         <h1>My Mentor</h1>
         <p>View your group status, assigned mentor, and interview history.</p>
       </div>
-      <button :disabled="loading" @click="load">
+      <button class="refresh-btn" type="button" :disabled="loading" @click="load">
         {{ loading ? 'Loading...' : 'Refresh' }}
       </button>
     </div>
@@ -199,8 +199,25 @@ onMounted(load)
 .table { width: 100%; border-collapse: collapse; margin-top: 10px; }
 th, td { border: 1px solid #e5e7eb; padding: 9px; text-align: left; vertical-align: top; }
 th { background: #f8fafc; }
-button { padding: 7px 12px; border: 1px solid #bbb; border-radius: 8px; background: #fff; cursor: pointer; }
-button:disabled { opacity: 0.55; cursor: not-allowed; }
+.refresh-btn {
+  min-width: 88px;
+  padding: 8px 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #111827;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.refresh-btn:hover:not(:disabled) {
+  background: #e2e8f0;
+}
+
+.refresh-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .error { margin: 12px 0; color: #b42318; }
 .empty { text-align: center; color: #777; }
 </style>

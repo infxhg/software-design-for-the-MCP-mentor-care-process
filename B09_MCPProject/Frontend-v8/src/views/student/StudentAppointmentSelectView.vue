@@ -267,7 +267,19 @@ onMounted(load)
 th, td { border: 1px solid #e5e7eb; padding: 9px; text-align: left; vertical-align: top; }
 th { background: #f8fafc; }
 .actions { white-space: nowrap; }
-button { padding: 7px 12px; border: 1px solid #bbb; border-radius: 8px; background: #fff; cursor: pointer; }
+button {
+  padding: 8px 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #111827;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: #e2e8f0;
+}
 button:disabled { opacity: 0.55; cursor: not-allowed; }
 .primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
 .error { margin: 12px 0; color: #b42318; }
