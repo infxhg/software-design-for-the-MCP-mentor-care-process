@@ -1,6 +1,8 @@
 server:
   port: 8081
 spring:
+  application:
+    name: user-service
   datasource:
     url: jdbc:mysql://rm-7xvkq7eswp47232at3o.mysql.rds.aliyuncs.com:3306/common-user?serverTimezone=UTC
     username: root

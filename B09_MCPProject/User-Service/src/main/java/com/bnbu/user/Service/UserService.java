@@ -324,16 +324,15 @@ public class UserService extends ServiceImpl<UserMapper, User> implements UserSe
             return new ArrayList<>();
         }
 
-        // 3. 关键字模糊查询 (name LIKE '%keyword%' OR email LIKE '%keyword%')
-        if (searchDTO.getKeyword() != null && !searchDTO.getKeyword().isEmpty()) {
-            String keyword = searchDTO.getKeyword();
-            queryWrapper.and(wrapper -> wrapper.like("real_name", keyword).or().like("email", keyword).or().like("id", keyword));
+        // 3. 关键字：先精确邮箱 / 登录 id，再模糊（避免 LIKE 命中多名导师后 list 顺序不稳定）
+        List<User> users;
+        if (searchDTO.getKeyword() != null && !searchDTO.getKeyword().trim().isEmpty()) {
+            users = listUsersForRoleKeyword(targetUserIds, searchDTO.getKeyword().trim());
+        } else {
+            users = this.list(queryWrapper);
         }
 
-        // 4. 执行查询
-        List<User> users = this.list(queryWrapper);
-
-        // 5. 转换为 DTO 返回
+        // 4. 转换为 DTO 返回
         return users.stream().map(user -> {
             com.bnbu.user.DTO.UserRemoteDTO dto = new com.bnbu.user.DTO.UserRemoteDTO();
             dto.setId(user.getId());
@@ -343,6 +342,43 @@ public class UserService extends ServiceImpl<UserMapper, User> implements UserSe
             dto.setPhone(user.getPhone());
             return dto;
         }).collect(Collectors.toList());
+    }
+
+    private QueryWrapper<User> roleScopedUserWrapper(List<String> targetUserIds) {
+        QueryWrapper<User> qw = new QueryWrapper<>();
+        if (targetUserIds != null) {
+            qw.in("id", targetUserIds);
+        }
+        return qw;
+    }
+
+    /**
+     * 在已限定用户 id 集合（如某角色下全部用户）的前提下按关键字查询。
+     * 先精确邮箱 / id / username，再模糊，避免 LIKE 命中多人后 {@code list()} 顺序不稳定导致导入绑错导师。
+     */
+    private List<User> listUsersForRoleKeyword(List<String> targetUserIds, String keyword) {
+        if (keyword.contains("@")) {
+            QueryWrapper<User> qe = roleScopedUserWrapper(targetUserIds);
+            qe.and(w -> w.eq("email", keyword));
+            List<User> hit = this.list(qe);
+            if (!hit.isEmpty()) {
+                return hit;
+            }
+        }
+        if (keyword.matches("^[A-Za-z0-9_.-]{5,}$")) {
+            QueryWrapper<User> qi = roleScopedUserWrapper(targetUserIds);
+            qi.and(w -> w.eq("id", keyword).or().eq("username", keyword));
+            List<User> hit = this.list(qi);
+            if (!hit.isEmpty()) {
+                return hit;
+            }
+        }
+        QueryWrapper<User> qf = roleScopedUserWrapper(targetUserIds);
+        qf.and(w -> w.like("real_name", keyword)
+                .or().like("email", keyword)
+                .or().like("id", keyword)
+                .or().like("username", keyword));
+        return this.list(qf);
     }
 
     private static final String FACULTY_CONSULTANT_ROLE_CODE = RoleCodeEnum.FACULTY_CONSULTANT.getCode();

@@ -94,14 +94,24 @@ public class SysOrgUnitController {
     }
 
     /**
-     * 功能：全局搜索学生信息 (仅供 Supporting Staff 使用)
+     * Supporting Staff：全局关键字搜索学生。
+     * Faculty Consultant：仅搜索其绑定学院（FACULTY）组织子树内的学生（与 {@code /students/profile} 数据范围一致）。
      */
     @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('ROLE_SUPPORT_STAFF') or hasAuthority('ROLE_FACULTY_CONSULTANT')")
     @GetMapping("/students/search")
     public Result searchAllStudents(
             @RequestParam(required = false) String keyword,
             @RequestHeader(value = "X-User-Id", required = false) String currentUserId) {
-        List<com.bnbu.organizational.DTO.UserRemoteDTO> students = sysOrgUnitService.searchAllStudents(keyword);
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        List<com.bnbu.organizational.DTO.UserRemoteDTO> students;
+        if (auth != null && hasRole(auth, "ROLE_FACULTY_CONSULTANT")) {
+            if (currentUserId == null || currentUserId.isBlank()) {
+                return Result.error("未获取到当前登录 FC ID，请通过网关传递 X-User-Id；或改用 GET /api/org/students/profile?keyword=");
+            }
+            students = sysOrgUnitService.searchStudentsForFacultyConsultant(currentUserId, keyword);
+        } else {
+            students = sysOrgUnitService.searchAllStudents(keyword);
+        }
         if (currentUserId != null && !currentUserId.isBlank()) {
             operationLogRecorder.recordQuiet(currentUserId,
                     operationLogRecorder.resolveUsername(currentUserId),

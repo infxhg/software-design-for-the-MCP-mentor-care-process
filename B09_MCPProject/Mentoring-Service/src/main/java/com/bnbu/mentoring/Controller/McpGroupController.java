@@ -199,7 +199,7 @@ public class McpGroupController {
     /**
      * POST /api/mentoring/groups/{groupId}/members/{studentId}?majorId=&mentorId=
      * groupId 为展示标签；majorId 定位专业子树；同标签+专业多组时 mentorId 必填以唯一定位。
-     * 新组员 ext.status 默认为 Normal。
+     * 新组员 ext.status 默认为 normal（见 StudentMentoringStatus）。
      */
     @PreAuthorize("hasAuthority('ROLE_FACULTY_CONSULTANT')")
     @PostMapping("/{groupId}/members/{studentId}")
@@ -210,7 +210,7 @@ public class McpGroupController {
             @RequestParam(required = false) String mentorId,
             @RequestHeader(value = "X-User-Id", required = false) String currentUserId) {
         return mutateGroupMember(groupId, majorId, mentorId, studentId, currentUserId, false, gk -> {
-            mcpGroupService.addMember(gk, studentId, majorId, "Normal");
+            mcpGroupService.addMember(gk, studentId, majorId, null);
             return Result.success("Member added", null);
         });
     }
@@ -391,7 +391,7 @@ public class McpGroupController {
                 mcpGroupService.removeMember(gk, studentId.trim());
                 return Result.success("Member removed", null);
             }
-            mcpGroupService.addMember(gk, studentId.trim(), majorId, "Normal");
+            mcpGroupService.addMember(gk, studentId.trim(), majorId, null);
             return Result.success("Member added", null);
         } catch (RuntimeException e) {
             return Result.error(e.getMessage());

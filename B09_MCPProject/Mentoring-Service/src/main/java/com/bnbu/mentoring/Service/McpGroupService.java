@@ -4,6 +4,7 @@ import com.bnbu.mentoring.Client.OrgServiceClient;
 import com.bnbu.mentoring.Client.UserServiceClient;
 import com.bnbu.mentoring.DTO.ChangeGroupMentorRequest;
 import com.bnbu.mentoring.DTO.EnsureMcpGroupRequest;
+import com.bnbu.mentoring.Common.StudentMentoringStatus;
 import com.bnbu.mentoring.DTO.McpGroupDTO;
 import com.bnbu.mentoring.DTO.Result;
 import com.bnbu.mentoring.DTO.UserSearchRequestDTO;
@@ -193,7 +194,7 @@ public class McpGroupService {
             ext.setStudentId(studentId);
             ext.setGroupKey(groupKey);   // UUID
             ext.setGroupId(groupLabel);  // 展示标签
-            ext.setStatus(status != null ? status : "Normal");
+            ext.setStatus(StudentMentoringStatus.resolveForInsert(status));
             ext.setUpdateTime(LocalDateTime.now());
             mcpStudentExtService.save(ext);
         } else {
@@ -203,7 +204,7 @@ public class McpGroupService {
                 throw new RuntimeException("Group " + groupKey + " is not under major " + majorId.trim());
             }
             if (status != null) {
-                ext.setStatus(status);
+                ext.setStatus(StudentMentoringStatus.normalizeOrThrow(status));
             }
             ext.setUpdateTime(LocalDateTime.now());
             mcpStudentExtService.updateById(ext);

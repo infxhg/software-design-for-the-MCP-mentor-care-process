@@ -3,6 +3,7 @@ package com.bnbu.mentoring.Service;
 import com.bnbu.mentoring.Client.OrgServiceClient;
 import com.bnbu.mentoring.Client.UserServiceClient;
 import com.bnbu.mentoring.DTO.BindUserOrgRequest;
+import com.bnbu.mentoring.Common.StudentMentoringStatus;
 import com.bnbu.mentoring.DTO.EnsureUserRequest;
 import com.bnbu.mentoring.DTO.McpGroupDTO;
 import com.bnbu.mentoring.DTO.Result;
@@ -130,7 +131,13 @@ public class McpImportService {
         // #endregion
         bindUserOrgQuietly(ensuredStudentId, row.major());
 
-        mcpGroupService.addMemberFromImport(groupKey, ensuredStudentId, row.major(), row.status());
+        String mentoringStatus;
+        try {
+            mentoringStatus = StudentMentoringStatus.resolveForInsert(row.status());
+        } catch (IllegalArgumentException e) {
+            throw new RuntimeException("Row " + row.rowNum() + ": " + e.getMessage());
+        }
+        mcpGroupService.addMemberFromImport(groupKey, ensuredStudentId, row.major(), mentoringStatus);
     }
 
     private String resolveFacultyOrgIdForImport(String facultyOrgId, String consultantUserId) {
@@ -287,6 +294,17 @@ public class McpImportService {
     }
 
     private String resolveMentorId(String mentorEmail, String mentorName) {
+        // 「Mentor」列常为登录名 mentor_new_xxx：优先于邮箱解析，避免邮箱单元格异常/过短时 LIKE 命中多名导师
+        if (looksLikeMentorLoginToken(mentorName)) {
+            String id = firstUserId(searchMentorsByKeyword(mentorName.trim()));
+            if (id != null) {
+                // #region agent log
+                debugLog("H-mentor", "McpImportService.resolveMentorId", "resolved from mentor column",
+                        Map.of("source", "mentorName", "keyword", mentorName.trim(), "mentorId", id));
+                // #endregion
+                return id;
+            }
+        }
         if (!isBlank(mentorEmail)) {
             UserSearchRequestDTO dto = new UserSearchRequestDTO();
             dto.setRoleCode("MENTOR");
@@ -294,6 +312,10 @@ public class McpImportService {
             Result res = userServiceClient.searchUsersByConditions(dto);
             String id = firstUserId(res);
             if (id != null) {
+                // #region agent log
+                debugLog("H-mentor", "McpImportService.resolveMentorId", "resolved from email",
+                        Map.of("source", "mentorEmail", "keyword", mentorEmail.trim(), "mentorId", id));
+                // #endregion
                 return id;
             }
         }
@@ -302,9 +324,30 @@ public class McpImportService {
             dto.setRoleCode("MENTOR");
             dto.setKeyword(mentorName.trim());
             Result res = userServiceClient.searchUsersByConditions(dto);
-            return firstUserId(res);
+            String id = firstUserId(res);
+            if (id != null) {
+                debugLog("H-mentor", "McpImportService.resolveMentorId", "resolved from mentor name fuzzy",
+                        Map.of("source", "mentorName", "keyword", mentorName.trim(), "mentorId", id));
+            }
+            return id;
         }
         return null;
+    }
+
+    /** Excel「Mentor」列：登录名 mentor_new_xxx 或纯 token，优先走精确 id/username 查询 */
+    private static boolean looksLikeMentorLoginToken(String s) {
+        if (s == null || s.isBlank()) {
+            return false;
+        }
+        String t = s.trim();
+        return t.matches("^[A-Za-z0-9_.-]{5,}$");
+    }
+
+    private Result searchMentorsByKeyword(String keyword) {
+        UserSearchRequestDTO dto = new UserSearchRequestDTO();
+        dto.setRoleCode("MENTOR");
+        dto.setKeyword(keyword);
+        return userServiceClient.searchUsersByConditions(dto);
     }
 
     private String firstUserId(Result res) {

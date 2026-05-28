@@ -94,11 +94,25 @@ public class RecordExportService {
      */
     public ExportDownloadResult exportConsultantFiltered(String consultantId, RecordExportFilter filter) {
         Set<String> scopeStudentIds = mentoringAccessService.listStudentIdsInFacultyConsultantScope(consultantId);
+        // #region agent log
+        exportDebugLog("H-C1", "RecordExportService.exportConsultantFiltered", "scope students resolved",
+                Map.of("consultantId", consultantId != null ? consultantId : "",
+                        "scopeStudentCount", scopeStudentIds.size(),
+                        "academicYearFrom", filter.getAcademicYearFrom() != null ? filter.getAcademicYearFrom() : -1,
+                        "academicYearTo", filter.getAcademicYearTo() != null ? filter.getAcademicYearTo() : -1));
+        // #endregion
         if (scopeStudentIds.isEmpty()) {
             return emptyConsultantExport(filter);
         }
 
         Set<String> targetStudentIds = resolveTargetStudentIds(scopeStudentIds, filter);
+        // #region agent log
+        exportDebugLog("H-C2", "RecordExportService.exportConsultantFiltered", "target students after student filter",
+                Map.of("targetStudentCount", targetStudentIds.size(),
+                        "studentId", filter.getStudentId() != null ? filter.getStudentId() : "",
+                        "studentKeyword", filter.getStudentKeyword() != null ? filter.getStudentKeyword() : "",
+                        "mentorKeyword", filter.getMentorKeyword() != null ? filter.getMentorKeyword() : ""));
+        // #endregion
         if (targetStudentIds.isEmpty()) {
             return emptyConsultantExport(filter);
         }
@@ -108,12 +122,23 @@ public class RecordExportService {
             targetStudentIds = targetStudentIds.stream()
                     .filter(sid -> isStudentInOrgScope(mcpStudentExtService.getById(sid), orgScope))
                     .collect(Collectors.toCollection(LinkedHashSet::new));
+            // #region agent log
+            exportDebugLog("H-C3", "RecordExportService.exportConsultantFiltered", "target students after org scope",
+                    Map.of("orgScopeSize", orgScope.size(), "targetStudentCount", targetStudentIds.size(),
+                            "faculty", filter.getFaculty() != null ? filter.getFaculty() : "",
+                            "department", filter.getDepartment() != null ? filter.getDepartment() : "",
+                            "major", filter.getMajor() != null ? filter.getMajor() : ""));
+            // #endregion
             if (targetStudentIds.isEmpty()) {
                 return emptyConsultantExport(filter);
             }
         }
 
         List<McpRecord> filtered = filterRecordsForExport(targetStudentIds, filter, orgScope);
+        // #region agent log
+        exportDebugLog("H-C4", "RecordExportService.exportConsultantFiltered", "filtered records ready for export",
+                Map.of("recordCount", filtered.size()));
+        // #endregion
         return buildExportFromFilteredRecords(
                 filter.getFaculty(),
                 filter.getDepartment(),
@@ -166,10 +191,36 @@ public class RecordExportService {
             return List.of();
         }
         Set<String> mentorIdFilter = resolveMentorIdsByKeyword(filter.getMentorKeyword());
-        return mcpRecordService.lambdaQuery()
+        List<McpRecord> raw = mcpRecordService.lambdaQuery()
                 .in(McpRecord::getStudentId, studentIds)
-                .list()
-                .stream()
+                .list();
+        long mentorMatched = raw.stream()
+                .filter(r -> mentorIdFilter == null || mentorIdFilter.contains(r.getMentorId()))
+                .count();
+        long orgMatched = raw.stream()
+                .filter(r -> mentorIdFilter == null || mentorIdFilter.contains(r.getMentorId()))
+                .filter(r -> isRecordInOrgScope(r, orgScope))
+                .count();
+        long dateMatched = raw.stream()
+                .filter(r -> mentorIdFilter == null || mentorIdFilter.contains(r.getMentorId()))
+                .filter(r -> isRecordInOrgScope(r, orgScope))
+                .filter(r -> matchesDateRange(r, filter))
+                .count();
+        long academicMatched = raw.stream()
+                .filter(r -> mentorIdFilter == null || mentorIdFilter.contains(r.getMentorId()))
+                .filter(r -> isRecordInOrgScope(r, orgScope))
+                .filter(r -> matchesDateRange(r, filter))
+                .filter(r -> matchesAcademicYear(r, filter))
+                .count();
+        // #region agent log
+        exportDebugLog("H-C5", "RecordExportService.filterRecordsForExport", "record filter counters",
+                Map.of("studentIdCount", studentIds.size(), "rawCount", raw.size(),
+                        "mentorMatched", mentorMatched, "orgMatched", orgMatched,
+                        "dateMatched", dateMatched, "academicMatched", academicMatched,
+                        "academicYearFrom", filter.getAcademicYearFrom() != null ? filter.getAcademicYearFrom() : -1,
+                        "academicYearTo", filter.getAcademicYearTo() != null ? filter.getAcademicYearTo() : -1));
+        // #endregion
+        return raw.stream()
                 .filter(r -> mentorIdFilter == null || mentorIdFilter.contains(r.getMentorId()))
                 .filter(r -> isRecordInOrgScope(r, orgScope))
                 .filter(r -> matchesDateRange(r, filter))

@@ -15,6 +15,7 @@ import com.bnbu.mentoring.DTO.McpGroupDTO;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -99,6 +100,26 @@ public class MentoringAccessService {
                 .map(McpStudentExt::getStudentId)
                 .filter(StringUtils::hasText)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    /**
+     * 仅保留 FC 按「小组学院范围」可访问的学生 id（与 {@link #assertFacultyConsultantCanAccessStudent} 一致）。
+     */
+    public List<String> filterStudentIdsAccessibleByFacultyConsultant(String consultantId, List<String> candidateIds) {
+        if (!StringUtils.hasText(consultantId) || candidateIds == null || candidateIds.isEmpty()) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        for (String raw : candidateIds) {
+            if (!StringUtils.hasText(raw)) {
+                continue;
+            }
+            String sid = raw.trim();
+            if (facultyConsultantCanAccessStudent(consultantId, sid)) {
+                out.add(sid);
+            }
+        }
+        return out;
     }
 
     private boolean facultyConsultantCanAccessGroup(String consultantId, String groupId) {

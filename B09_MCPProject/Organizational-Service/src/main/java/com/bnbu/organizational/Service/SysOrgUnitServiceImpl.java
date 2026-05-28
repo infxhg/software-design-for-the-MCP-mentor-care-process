@@ -659,7 +659,8 @@ public class SysOrgUnitServiceImpl extends ServiceImpl<SysOrgUnitMapper, SysOrgU
                 .collect(Collectors.toList());
     }
 
-    private List<UserRemoteDTO> searchStudentsForFacultyConsultant(String consultantId, String keyword) {
+    @Override
+    public List<UserRemoteDTO> searchStudentsForFacultyConsultant(String consultantId, String keyword) {
         List<String> facultyIds = sysUserOrgService.listFacultyOrgIdsForUser(consultantId);
         if (CollectionUtils.isEmpty(facultyIds)) {
             return List.of();
