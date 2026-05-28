@@ -56,6 +56,13 @@ const cards: DashboardCard[] = [
 
   // -------------------- Student (1B) --------------------
   { title: 'Check Mentor Info', description: 'View your assigned mentor and contact information.', path: '/student/check-mentor', linkText: 'Open', roles: ['student'] },
+  {
+    title: 'Select Interview Appointment',
+    description: 'Choose a 30-minute slot from your mentor and confirm your interview time.',
+    path: '/student/appointment-select',
+    linkText: 'Open',
+    roles: ['student'],
+  },
   { title: 'Communication', description: 'Send messages or respond to interview invitations.', path: '/student/communication', linkText: 'Open', roles: ['student'] },
 
   // -------------------- Coordinator (1D) --------------------
