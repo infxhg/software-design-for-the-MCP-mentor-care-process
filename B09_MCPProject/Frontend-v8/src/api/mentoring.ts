@@ -27,6 +27,8 @@ import {
 
 const MENTOR_SLOT_OWNER_KEY = 'mcs_mentor_slot_owner_id'
 const MENTOR_SLOTS_CACHE_PREFIX = 'mcs_mentor_slots_'
+const STUDENT_BOOKED_SLOTS_PREFIX = 'mcs_student_booked_slots_'
+const STUDENT_BOOKED_IDENTITY_KEY = 'mcs_student_booked_identity'
 
 export interface InterviewRecord {
   recordId?: string
@@ -310,13 +312,13 @@ function normalizeCase(raw: any): CaseItem {
 function normalizeSlot(raw: any): AppointmentSlot {
   return {
     ...raw,
-    slotId: String(raw?.slotId ?? raw?.id ?? ''),
+    slotId: String(raw?.slotId ?? raw?.id ?? raw?.slot_id ?? ''),
     mentorId: raw?.mentorId,
     studentId: raw?.studentId ?? null,
     slotDate: normalizeDate(raw?.slotDate ?? raw?.date),
     startTime: normalizeTime(raw?.startTime ?? raw?.time),
     endTime: normalizeTime(raw?.endTime),
-    venue: raw?.venue ?? null,
+    venue: raw?.venue ?? raw?.location ?? raw?.room ?? raw?.venueName ?? null,
     status: raw?.status,
     createTime: raw?.createTime,
   }
@@ -1154,6 +1156,30 @@ async function tryListMentorSlotsByPath(path: string): Promise<AppointmentSlot[]
   }
 }
 
+function mergeAppointmentSlot(
+  existing: AppointmentSlot | undefined,
+  incoming: AppointmentSlot,
+): AppointmentSlot {
+  const merged: AppointmentSlot = {
+    ...existing,
+    ...incoming,
+    slotId: incoming.slotId || existing?.slotId || '',
+  }
+
+  const status = String(merged.status || '').toUpperCase()
+  const booked =
+    Boolean(merged.studentId) ||
+    ['BOOKED', 'CONFIRMED', 'RESERVED', 'OCCUPIED'].includes(status)
+
+  // Backend rows do not store invitedStudentId; keep local invite marker after refresh.
+  if (!booked && existing?.invitedStudentId && !incoming.invitedStudentId) {
+    merged.invitedStudentId = existing.invitedStudentId
+    merged.invitedStudentName = existing.invitedStudentName
+  }
+
+  return merged
+}
+
 export async function listMyMentorAppointmentSlots(): Promise<AppointmentSlot[]> {
   const cached = loadCachedMentorAppointmentSlots()
   const merged = new Map<string, AppointmentSlot>()
@@ -1189,7 +1215,7 @@ export async function listMyMentorAppointmentSlots(): Promise<AppointmentSlot[]>
     '/api/mentoring/appointments/my-slots',
   ]) {
     for (const row of await tryListMentorSlotsByPath(path)) {
-      if (row.slotId) merged.set(row.slotId, { ...merged.get(row.slotId), ...row })
+      if (row.slotId) merged.set(row.slotId, mergeAppointmentSlot(merged.get(row.slotId), row))
     }
   }
 
@@ -1200,7 +1226,7 @@ export async function listMyMentorAppointmentSlots(): Promise<AppointmentSlot[]>
         rememberMentorSlotOwnerId(String(rows[0]?.mentorId || candidate))
       }
       for (const row of rows) {
-        if (row.slotId) merged.set(row.slotId, { ...merged.get(row.slotId), ...row })
+        if (row.slotId) merged.set(row.slotId, mergeAppointmentSlot(merged.get(row.slotId), row))
       }
     } catch {
       // GET /slots/mentor/{id} returns 403 for mentor on current backend
@@ -1232,16 +1258,329 @@ export async function sendInterviewInvitation(
   return createAppointmentSlots({ slotDate: firstDate, startTimes })
 }
 
+function unwrapAppointmentSlotList(response: unknown): AppointmentSlot[] {
+  const data = unwrap(response as any)
+  if (Array.isArray(data)) return data.map(normalizeSlot)
+  if (data && typeof data === 'object') {
+    const obj = data as Record<string, unknown>
+    for (const key of ['slots', 'list', 'records', 'items', 'data']) {
+      const rows = obj[key]
+      if (Array.isArray(rows)) return rows.map(normalizeSlot)
+    }
+  }
+  return []
+}
+
 export async function getMentorAppointmentSlots(mentorId: string): Promise<AppointmentSlot[]> {
-  const res = await get<any[]>(`/api/mentoring/appointments/slots/mentor/${encodeURIComponent(mentorId)}`)
-  return (unwrap(res) || []).map(normalizeSlot)
+  const res = await get<any[]>(
+    `/api/mentoring/appointments/slots/mentor/${encodeURIComponent(mentorId)}`,
+    { _t: Date.now() },
+  )
+  return unwrapAppointmentSlotList(res)
+}
+
+/** Student: only my BOOKED slots for one mentor (venue refresh). */
+export async function getMyBookedAppointmentSlots(mentorId: string): Promise<AppointmentSlot[]> {
+  const res = await get<any[]>(`/api/mentoring/appointments/booked/mine`, {
+    mentorId,
+    _t: Date.now(),
+  })
+  return unwrapAppointmentSlotList(res)
+}
+
+function getStudentBookedSlotsCacheKey(): string {
+  const username = String(localStorage.getItem('username') || localStorage.getItem('userId') || 'unknown').trim()
+  return `${STUDENT_BOOKED_SLOTS_PREFIX}${username}`
+}
+
+export function loadCachedStudentBookedSlots(): AppointmentSlot[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(getStudentBookedSlotsCacheKey()) || '[]')
+    return Array.isArray(raw) ? raw.map(normalizeSlot) : []
+  } catch {
+    return []
+  }
+}
+
+function saveCachedStudentBookedSlots(rows: AppointmentSlot[]): void {
+  localStorage.setItem(getStudentBookedSlotsCacheKey(), JSON.stringify(rows))
+}
+
+export function upsertCachedStudentBookedSlot(slot: AppointmentSlot): void {
+  const slotId = String(slot.slotId || '').trim()
+  if (!slotId) return
+
+  const rows = loadCachedStudentBookedSlots()
+  const index = rows.findIndex((row) => row.slotId === slotId)
+  const normalized = normalizeSlot({ ...rows[index], ...slot, slotId, status: slot.status || 'BOOKED' })
+
+  if (index >= 0) {
+    rows[index] = normalized
+  } else {
+    rows.push(normalized)
+  }
+  saveCachedStudentBookedSlots(rows)
+
+  const sid = String(normalized.studentId || '').trim()
+  if (sid) rememberStudentBookedIdentity(sid)
+}
+
+export function rememberStudentBookedIdentity(studentId: string): void {
+  const id = String(studentId || '').trim()
+  if (!id) return
+
+  try {
+    const raw = JSON.parse(localStorage.getItem(STUDENT_BOOKED_IDENTITY_KEY) || '[]')
+    const set = new Set<string>(Array.isArray(raw) ? raw.map(String) : [])
+    set.add(id)
+    localStorage.setItem(STUDENT_BOOKED_IDENTITY_KEY, JSON.stringify([...set]))
+  } catch {
+    localStorage.setItem(STUDENT_BOOKED_IDENTITY_KEY, JSON.stringify([id]))
+  }
+}
+
+export function loadStudentBookedIdentities(): string[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(STUDENT_BOOKED_IDENTITY_KEY) || '[]')
+    return Array.isArray(raw) ? raw.map((item) => String(item).trim()).filter(Boolean) : []
+  } catch {
+    return []
+  }
+}
+
+function isBookedAppointmentSlot(slot: AppointmentSlot): boolean {
+  const status = String(slot.status || '').toUpperCase()
+  return (
+    Boolean(String(slot.studentId || '').trim()) ||
+    ['BOOKED', 'CONFIRMED', 'RESERVED', 'OCCUPIED'].includes(status)
+  )
+}
+
+function appointmentSlotRank(slot: AppointmentSlot): number {
+  return isBookedAppointmentSlot(slot) ? 2 : 1
+}
+
+function mentorIdAliasSet(mentorId: string, mentorIdAliases?: string[]): Set<string> {
+  return new Set(
+    [mentorId, ...(mentorIdAliases || [])].map((value) => String(value || '').trim()).filter(Boolean),
+  )
+}
+
+function slotMatchesMentorAliases(slot: AppointmentSlot, aliases: Set<string>): boolean {
+  const mid = String(slot.mentorId || '').trim()
+  return !mid || aliases.has(mid)
+}
+
+function pickNonEmptyVenue(...slots: Array<AppointmentSlot | undefined>): string | null {
+  for (const row of slots) {
+    const venue = String(row?.venue ?? '').trim()
+    if (venue) return venue
+  }
+  return null
+}
+
+export function mergeStudentAppointmentSlots(...lists: AppointmentSlot[][]): AppointmentSlot[] {
+  const map = new Map<string, AppointmentSlot>()
+
+  for (const list of lists) {
+    for (const slot of list) {
+      if (!slot.slotId) continue
+      const existing = map.get(slot.slotId)
+      const existingRank = existing ? appointmentSlotRank(existing) : 0
+      const slotRank = appointmentSlotRank(slot)
+
+      let merged: AppointmentSlot
+      if (!existing) {
+        merged = normalizeSlot({ ...slot, slotId: slot.slotId })
+      } else if (existingRank > slotRank) {
+        merged = normalizeSlot({ ...slot, ...existing, slotId: slot.slotId })
+      } else if (slotRank > existingRank) {
+        merged = normalizeSlot({ ...existing, ...slot, slotId: slot.slotId })
+      } else {
+        merged = normalizeSlot({ ...existing, ...slot, slotId: slot.slotId })
+      }
+
+      const venue = pickNonEmptyVenue(slot, existing)
+      if (venue) merged.venue = venue
+
+      map.set(slot.slotId, merged)
+    }
+  }
+
+  return [...map.values()]
+}
+
+function syncCachedStudentBookedSlots(slots: AppointmentSlot[]): void {
+  for (const slot of slots) {
+    if (!isBookedAppointmentSlot(slot)) continue
+    upsertCachedStudentBookedSlot(slot)
+  }
+}
+
+/** Student: fetch one slot (own BOOKED or AVAILABLE) — used to refresh venue after mentor saves. */
+export async function getStudentAppointmentSlot(slotId: string): Promise<AppointmentSlot> {
+  const res = await get<any>(`/api/mentoring/appointments/slots/${encodeURIComponent(slotId)}`)
+  const slot = normalizeSlot(unwrap(res))
+  if (isBookedAppointmentSlot(slot)) {
+    upsertCachedStudentBookedSlot(slot)
+  }
+  return slot
+}
+
+function collectStudentIdentityHints(): string[] {
+  const hints = new Set<string>()
+  const add = (value: unknown) => {
+    const text = String(value ?? '').trim()
+    if (text) {
+      hints.add(text)
+      hints.add(text.toLowerCase())
+    }
+  }
+
+  add(localStorage.getItem('username'))
+  add(localStorage.getItem('userId'))
+
+  try {
+    const info = JSON.parse(localStorage.getItem('userInfo') || '{}')
+    const user = info.user || info
+    add(user.studentId)
+    add(user.userId)
+    add(user.id)
+    add(user.username)
+    add(info.studentId)
+    add(info.userId)
+    add(info.id)
+  } catch {
+    // ignore
+  }
+
+  for (const id of loadStudentBookedIdentities()) add(id)
+
+  return [...hints]
+}
+
+async function fetchFreshBookedSlotRow(
+  slot: AppointmentSlot,
+  mentorIdAliases: string[],
+): Promise<AppointmentSlot | null> {
+  const slotId = String(slot.slotId || '').trim()
+  if (!slotId) return null
+
+  const tryRow = (row: AppointmentSlot | null | undefined) => {
+    if (!row?.slotId || row.slotId !== slotId) return null
+    return pickNonEmptyVenue(row) || isBookedAppointmentSlot(row) ? row : null
+  }
+
+  try {
+    const direct = await getStudentAppointmentSlot(slotId)
+    const hit = tryRow(direct)
+    if (hit && pickNonEmptyVenue(hit)) return hit
+  } catch {
+    // continue
+  }
+
+  const mentorIds = [
+    ...mentorIdAliases,
+    String(slot.mentorId || '').trim(),
+  ].filter(Boolean)
+
+  const uniqueMentorIds = [...new Set(mentorIds)]
+  for (const mentorId of uniqueMentorIds) {
+    try {
+      const booked = await getMyBookedAppointmentSlots(mentorId)
+      const hit = booked.find((row) => row.slotId === slotId)
+      if (hit && pickNonEmptyVenue(hit)) return hit
+    } catch {
+      // continue
+    }
+
+    try {
+      const rows = await getMentorAppointmentSlots(mentorId)
+      const hit = rows.find((row) => row.slotId === slotId)
+      if (hit && pickNonEmptyVenue(hit)) return hit
+    } catch {
+      // continue
+    }
+  }
+
+  return null
+}
+
+async function hydrateStudentBookedSlotVenues(
+  slots: AppointmentSlot[],
+  mentorIdAliases: string[] = [],
+): Promise<AppointmentSlot[]> {
+  const stale = slots.filter(
+    (slot) => slot.slotId && isBookedAppointmentSlot(slot) && !pickNonEmptyVenue(slot),
+  )
+  if (stale.length === 0) return slots
+
+  const refreshed = new Map<string, AppointmentSlot>()
+  await Promise.all(
+    stale.map(async (slot) => {
+      const row = await fetchFreshBookedSlotRow(slot, mentorIdAliases)
+      if (row?.slotId && pickNonEmptyVenue(row)) {
+        refreshed.set(row.slotId, row)
+        upsertCachedStudentBookedSlot(row)
+      }
+    }),
+  )
+
+  if (refreshed.size === 0) return slots
+
+  return slots.map((slot) => {
+    const row = slot.slotId ? refreshed.get(slot.slotId) : undefined
+    return row ? mergeStudentAppointmentSlots([slot], [row])[0] : slot
+  })
+}
+
+/** Student view: AVAILABLE from API + this student's BOOKED slots (API and local cache). */
+export async function getStudentMentorAppointmentSlots(
+  mentorId: string,
+  mentorIdAliases: string[] = [],
+): Promise<AppointmentSlot[]> {
+  const aliases = mentorIdAliasSet(mentorId, mentorIdAliases)
+  const fromApi = await getMentorAppointmentSlots(mentorId)
+  const cached = loadCachedStudentBookedSlots().filter((slot) => slotMatchesMentorAliases(slot, aliases))
+
+  let bookedFromApi: AppointmentSlot[] = []
+  for (const mid of aliases) {
+    try {
+      bookedFromApi = mergeStudentAppointmentSlots(
+        bookedFromApi,
+        await getMyBookedAppointmentSlots(mid),
+      )
+    } catch {
+      // booked/mine may be unavailable on older backends
+    }
+  }
+
+  const merged = mergeStudentAppointmentSlots(cached, fromApi, bookedFromApi)
+  const hydrated = await hydrateStudentBookedSlotVenues(merged, [...aliases])
+  syncCachedStudentBookedSlots(hydrated)
+  return hydrated
 }
 
 export const getMentorAvailableSlots = getMentorAppointmentSlots
 
-export async function confirmAppointmentSlot(slotId: string): Promise<AppointmentSlot> {
+export async function confirmAppointmentSlot(
+  slotId: string,
+  context?: { mentorId?: string; studentId?: string },
+): Promise<AppointmentSlot> {
   const res = await post<any>('/api/mentoring/appointments/confirm', { slotId })
-  return normalizeSlot(unwrap(res))
+  const slot = normalizeSlot(unwrap(res))
+  const enriched = normalizeSlot({
+    ...slot,
+    slotId: slot.slotId || slotId,
+    status: slot.status || 'BOOKED',
+    mentorId: slot.mentorId || context?.mentorId,
+    studentId: slot.studentId || context?.studentId,
+  })
+  upsertCachedStudentBookedSlot(enriched)
+  for (const hint of collectStudentIdentityHints()) {
+    rememberStudentBookedIdentity(hint)
+  }
+  return enriched
 }
 
 export const studentConfirmSlot = confirmAppointmentSlot

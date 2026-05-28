@@ -99,6 +99,13 @@ async function login() {
     localStorage.setItem('role', frontendRole)
     localStorage.setItem('userInfo', JSON.stringify(userInfo))
 
+    const resolvedUserId = String(
+      userInfo.userId ?? userInfo.id ?? userInfo.user?.userId ?? userInfo.user?.id ?? '',
+    ).trim()
+    if (resolvedUserId) {
+      localStorage.setItem('userId', resolvedUserId)
+    }
+
     // Step 3: Navigate to main page
     router.push('/main')
   } catch (err: any) {

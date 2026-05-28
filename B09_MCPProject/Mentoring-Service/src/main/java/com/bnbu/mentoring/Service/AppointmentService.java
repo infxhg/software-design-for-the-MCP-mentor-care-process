@@ -12,10 +12,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.bnbu.mentoring.Entity.McpStudentExt;
+import com.bnbu.mentoring.Mapper.McpStudentExtMapper;
+
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Slf4j
 @Service
@@ -29,6 +35,9 @@ public class AppointmentService extends ServiceImpl<AppointmentSlotMapper, Appoi
 
     @Autowired
     private UserServiceClient userServiceClient;
+
+    @Autowired
+    private McpStudentExtMapper mcpStudentExtMapper;
 
     // ────────────────────────────────────────────────────────────────────────
     // 核心业务方法
@@ -78,10 +87,212 @@ public class AppointmentService extends ServiceImpl<AppointmentSlotMapper, Appoi
     }
 
     public List<AppointmentSlot> listAvailableForStudent(String studentId, String mentorId) {
+        return listSlotsForStudentBooking(studentId, mentorId);
+    }
+
+    /**
+     * 学生端：可预约的 AVAILABLE 时段 + 该学生已 BOOKED 的时段（含导师后续填写的 venue）。
+     */
+    public List<AppointmentSlot> listSlotsForStudentBooking(String studentId, String mentorId) {
         if (!mentoringAccessService.isStudentInMentorGroups(mentorId, studentId)) {
             throw new RuntimeException("权限不足：您只能查看本组导师的可用时段");
         }
-        return listAvailableByMentor(mentorId);
+
+        Map<String, AppointmentSlot> merged = new LinkedHashMap<>();
+        for (AppointmentSlot slot : listAvailableByMentor(mentorId)) {
+            if (slot.getSlotId() != null) {
+                merged.put(slot.getSlotId(), slot);
+            }
+        }
+
+        for (AppointmentSlot slot : listBookedSlotsForStudentOnMentor(studentId, mentorId)) {
+            if (slot.getSlotId() != null) {
+                merged.put(slot.getSlotId(), slot);
+            }
+        }
+
+        return new ArrayList<>(merged.values());
+    }
+
+    /** 学生本人已预约的时段（含导师后续填写的 venue）。 */
+    public List<AppointmentSlot> listMyBookedSlotsForMentor(String studentId, String mentorId) {
+        if (!mentoringAccessService.isStudentInMentorGroups(mentorId, studentId)) {
+            throw new RuntimeException("权限不足：您只能查看本组导师的可用时段");
+        }
+        return listBookedSlotsForStudentOnMentor(studentId, mentorId);
+    }
+
+    private List<AppointmentSlot> listBookedSlotsForStudentOnMentor(String studentId, String mentorId) {
+        List<AppointmentSlot> bookedOnMentor = this.lambdaQuery()
+                .eq(AppointmentSlot::getStatus, "BOOKED")
+                .orderByAsc(AppointmentSlot::getSlotDate)
+                .orderByAsc(AppointmentSlot::getStartTime)
+                .list();
+
+        List<AppointmentSlot> matched = new ArrayList<>();
+        for (AppointmentSlot slot : bookedOnMentor) {
+            if (slot.getSlotId() == null || slot.getStudentId() == null) {
+                continue;
+            }
+            if (!studentIdsMatch(studentId, slot.getStudentId())) {
+                continue;
+            }
+            if (mentorIdsMatch(mentorId, slot.getMentorId())) {
+                matched.add(slot);
+                continue;
+            }
+            // mentorId 参数可能是 username，slot 存的是 sys user UUID
+            if (mentoringAccessService.isStudentInMentorGroups(mentorId, studentId)
+                    && mentoringAccessService.isStudentInMentorGroups(slot.getMentorId(), studentId)) {
+                matched.add(slot);
+            }
+        }
+        return matched;
+    }
+
+    /** 学生查看单个时段（AVAILABLE 或本人 BOOKED），用于刷新 venue 等字段。 */
+    public AppointmentSlot getSlotForStudent(String studentId, String slotId) {
+        AppointmentSlot slot = this.getById(slotId);
+        if (slot == null) {
+            throw new RuntimeException("Slot not found");
+        }
+
+        if ("BOOKED".equals(slot.getStatus())) {
+            if (slot.getStudentId() == null || !studentIdsMatch(studentId, slot.getStudentId())) {
+                throw new RuntimeException("权限不足：只能查看自己的预约时段");
+            }
+            return slot;
+        }
+
+        if ("AVAILABLE".equals(slot.getStatus())) {
+            if (!mentoringAccessService.isStudentInMentorGroups(slot.getMentorId(), studentId)) {
+                throw new RuntimeException("权限不足：您只能查看本组导师的可用时段");
+            }
+            return slot;
+        }
+
+        throw new RuntimeException("Slot is not available");
+    }
+
+    public String resolveStudentId(String userId, String username) {
+        if (userId != null && !userId.isBlank()) {
+            if (mcpStudentExtMapper.selectById(userId.trim()) != null) {
+                return userId.trim();
+            }
+        }
+        if (username != null && !username.isBlank()) {
+            if (mcpStudentExtMapper.selectById(username.trim()) != null) {
+                return username.trim();
+            }
+        }
+        return userId != null ? userId.trim() : (username != null ? username.trim() : "");
+    }
+
+    private boolean mentorIdsMatch(String requestedMentorId, String slotMentorId) {
+        if (requestedMentorId == null || slotMentorId == null) {
+            return false;
+        }
+        Set<String> left = mentorIdentityAliases(requestedMentorId);
+        Set<String> right = mentorIdentityAliases(slotMentorId);
+        for (String a : left) {
+            for (String b : right) {
+                if (a.equalsIgnoreCase(b)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private Set<String> mentorIdentityAliases(String mentorId) {
+        Set<String> aliases = new HashSet<>();
+        if (mentorId == null) {
+            return aliases;
+        }
+        String id = mentorId.trim();
+        if (!id.isEmpty()) {
+            aliases.add(id);
+        }
+        appendUserAliases(aliases, id);
+        return aliases;
+    }
+
+    private boolean studentIdsMatch(String left, String right) {
+        if (left == null || right == null) {
+            return false;
+        }
+        Set<String> leftAliases = studentIdentityAliases(left);
+        Set<String> rightAliases = studentIdentityAliases(right);
+        for (String a : leftAliases) {
+            for (String b : rightAliases) {
+                if (a.equalsIgnoreCase(b)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private Set<String> studentIdentityAliases(String studentId) {
+        Set<String> aliases = new HashSet<>();
+        if (studentId == null) {
+            return aliases;
+        }
+        String id = studentId.trim();
+        if (id.isEmpty()) {
+            return aliases;
+        }
+        aliases.add(id);
+
+        McpStudentExt ext = mcpStudentExtMapper.selectById(id);
+        if (ext != null && ext.getStudentId() != null && !ext.getStudentId().isBlank()) {
+            aliases.add(ext.getStudentId().trim());
+        }
+
+        appendUserAliases(aliases, id);
+        return aliases;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void appendUserAliases(Set<String> aliases, String userId) {
+        try {
+            Result res = userServiceClient.getUserById(userId);
+            if (res == null || res.getCode() != 200 || !(res.getData() instanceof Map)) {
+                return;
+            }
+            Map<String, Object> user = (Map<String, Object>) res.getData();
+            addAlias(aliases, user.get("userId"));
+            addAlias(aliases, user.get("id"));
+            addAlias(aliases, user.get("username"));
+            addAlias(aliases, user.get("studentId"));
+            addAlias(aliases, user.get("account"));
+        } catch (Exception e) {
+            log.debug("Could not resolve user aliases for {}: {}", userId, e.getMessage());
+        }
+
+        try {
+            Result res = userServiceClient.getStudentById(userId);
+            if (res == null || res.getCode() != 200 || !(res.getData() instanceof Map)) {
+                return;
+            }
+            Map<String, Object> student = (Map<String, Object>) res.getData();
+            addAlias(aliases, student.get("studentId"));
+            addAlias(aliases, student.get("userId"));
+            addAlias(aliases, student.get("id"));
+            addAlias(aliases, student.get("username"));
+        } catch (Exception e) {
+            log.debug("Could not resolve student aliases for {}: {}", userId, e.getMessage());
+        }
+    }
+
+    private void addAlias(Set<String> aliases, Object value) {
+        if (value == null) {
+            return;
+        }
+        String text = value.toString().trim();
+        if (!text.isEmpty()) {
+            aliases.add(text);
+        }
     }
 
     @Transactional

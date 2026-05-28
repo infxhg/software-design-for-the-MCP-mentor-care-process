@@ -51,7 +51,7 @@ const cards: DashboardCard[] = [
   { title: 'Search Student Info', description: 'Look up a student in your mentoring groups.', path: '/search-student', linkText: 'Open', roles: ['mentor', 'coordinator', 'consultant'] },
   { title: 'Export Records', description: 'Export interview records of your group as a Word file.', path: '/mentor/export-records', linkText: 'Open', roles: ['mentor'] },
   { title: 'Forward Cases', description: 'Forward a student case to the MCP Coordinator.', path: '/mentor/forward-case', linkText: 'Open', roles: ['mentor'] },
-  { title: 'Interview Arrangement', description: 'Mark available time slots and arrange interviews.', path: '/mentor/interview-arrangement', linkText: 'Open', roles: ['mentor'] },
+  { title: 'Interview Arrangement', description: 'Mark 30-minute available slots for students to book, then set venue after booking.', path: '/mentor/interview-arrangement', linkText: 'Open', roles: ['mentor'] },
   { title: 'Communicate', description: 'Send messages or arrange interviews.', path: '/communication', linkText: 'Open', roles: ['mentor', 'coordinator', 'consultant'] },
 
   // -------------------- Student (1B) --------------------

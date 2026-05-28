@@ -24,6 +24,7 @@
         <template v-if="role === 'student'">
           <p class="nav-group">Student</p>
           <router-link to="/student/check-mentor">Check Mentor Info</router-link>
+          <router-link to="/student/appointment-select">Select Interview Appointment</router-link>
           <router-link to="/student/communication">Communication</router-link>
           <router-link to="/feedback">Give Feedback</router-link>
         </template>

@@ -4,7 +4,8 @@
       <div>
         <h1>Interview Arrangement</h1>
         <p class="desc">
-          Arrange a 30-minute interview for a student, set the venue, and track booking status below.
+          Mark 30-minute time slots for students in your group to choose. After a student books a
+          slot, enter the interview venue below.
         </p>
       </div>
       <div class="actions">
@@ -14,10 +15,11 @@
     </div>
 
     <section class="card">
-      <h2>Arrange Interview</h2>
+      <h2>Mark Available Time Slots</h2>
       <p class="hint">
-        Fill in the same fields as the table below. After saving, the student can confirm the slot
-        from <strong>Select Interview Appointment</strong>.
+        Each slot is <strong>30 minutes</strong>. Publishing creates an <strong>AVAILABLE</strong>
+        slot that students see on <strong>Select Interview Appointment</strong> and can book.
+        After a student books, the status becomes <strong>BOOKED</strong> and you can set the venue.
       </p>
 
       <div class="form-grid">
@@ -32,7 +34,7 @@
         </div>
 
         <div class="form-item span-2 student-picker">
-          <label>Student</label>
+          <label>Notify student <span class="optional">(optional message only)</span></label>
           <div class="picker-shell">
             <input
               v-model="studentQuery"
@@ -73,10 +75,10 @@
       <button
         type="button"
         class="primary save-button"
-        :disabled="submitting || resolvingStudent || !slotDate || !slotTime || !selectedStudentId"
+        :disabled="submitting || resolvingStudent || !slotDate || !slotTime"
         @click="saveInterviewSlot"
       >
-        {{ submitting ? 'Saving...' : 'Save Interview Slot' }}
+        {{ submitting ? 'Publishing...' : 'Publish Available Slot' }}
       </button>
     </section>
 
@@ -85,7 +87,10 @@
         <div>
           <h2>My Interview Slots</h2>
           <p class="hint">
-            Student shows as invited until they book. Booked slots can receive or update a venue.
+            <strong>AVAILABLE</strong> = open slot waiting for a student to choose.
+            <strong>BOOKED</strong> = student has booked; set or update venue, then click
+            <strong>Save Venue</strong>.
+            Use <strong>Cancel Slot</strong> to remove a slot you no longer need.
           </p>
         </div>
         <button type="button" class="secondary" :disabled="loadingSlots" @click="() => loadSlots()">
@@ -226,11 +231,13 @@ const selectedStudentLabel = computed(() => {
 })
 
 const sortedSlots = computed(() => {
-  return [...mySlots.value].sort((a, b) => {
-    const left = `${a.slotDate || ''} ${a.startTime || ''}`
-    const right = `${b.slotDate || ''} ${b.startTime || ''}`
-    return left.localeCompare(right)
-  })
+  return [...mySlots.value]
+    .filter((slot) => !['CANCELLED', 'CANCELED'].includes(String(slot.status || '').toUpperCase()))
+    .sort((a, b) => {
+      const left = `${a.slotDate || ''} ${a.startTime || ''}`
+      const right = `${b.slotDate || ''} ${b.startTime || ''}`
+      return left.localeCompare(right)
+    })
 })
 
 onMounted(async () => {
@@ -281,11 +288,6 @@ async function saveInterviewSlot() {
     return
   }
 
-  if (!studentId) {
-    showCreateError('Please select a student.')
-    return
-  }
-
   submitting.value = true
 
   try {
@@ -299,48 +301,60 @@ async function saveInterviewSlot() {
       throw new Error('Backend did not return slotId.')
     }
 
-    const studentName =
-      studentOptions.value.find((row) => row.studentId === studentId)?.name ||
-      studentOptions.value.find((row) => row.studentId === studentId)?.realName
+    let savedSlot: AppointmentSlot = { ...slot }
 
-    tagMentorSlotInvitation(slot.slotId, studentId, studentName)
+    if (studentId) {
+      const studentName =
+        studentOptions.value.find((row) => row.studentId === studentId)?.name ||
+        studentOptions.value.find((row) => row.studentId === studentId)?.realName
 
-    let savedSlot: AppointmentSlot = {
-      ...slot,
-      invitedStudentId: studentId,
-      invitedStudentName: studentName || studentId,
-    }
+      tagMentorSlotInvitation(slot.slotId, studentId, studentName)
 
-    if (venue) {
-      savedSlot = await setAppointmentVenue(slot.slotId, venue)
       savedSlot = {
         ...savedSlot,
         invitedStudentId: studentId,
         invitedStudentName: studentName || studentId,
       }
-      upsertCachedMentorSlot(savedSlot)
+
+      try {
+        const endTime = savedSlot.endTime || addThirtyMinutes(startTime)
+        await sendNormalMessage(
+          studentId,
+          [
+            'Interview appointment invitation:',
+            `Date: ${date}`,
+            `Time: ${startTime}${endTime ? ` - ${endTime}` : ''}`,
+            venue ? `Venue: ${venue}` : 'Venue: to be confirmed',
+            'Please confirm this slot from your "Select Interview Appointment" page.',
+          ].join('\n'),
+        )
+      } catch {
+        // slot is already saved; message failure should not block the mentor flow
+      }
     }
 
-    try {
-      const endTime = savedSlot.endTime || addThirtyMinutes(startTime)
-      await sendNormalMessage(
-        studentId,
-        [
-          'Interview appointment invitation:',
-          `Date: ${date}`,
-          `Time: ${startTime}${endTime ? ` - ${endTime}` : ''}`,
-          venue ? `Venue: ${venue}` : 'Venue: to be confirmed',
-          'Please confirm this slot from your "Select Interview Appointment" page.',
-        ].join('\n'),
-      )
-    } catch {
-      // slot is already saved; message failure should not block the mentor flow
+    if (venue) {
+      savedSlot = await setAppointmentVenue(slot.slotId, venue)
+      if (studentId) {
+        savedSlot = {
+          ...savedSlot,
+          invitedStudentId: studentId,
+          invitedStudentName:
+            savedSlot.invitedStudentName ||
+            studentOptions.value.find((row) => row.studentId === studentId)?.name ||
+            studentId,
+        }
+      }
     }
+
+    upsertCachedMentorSlot(savedSlot)
 
     mySlots.value = await listMyMentorAppointmentSlots()
     syncVenueInputs()
 
-    message.value = `Interview slot saved for ${studentId}.`
+    message.value = studentId
+      ? `Available slot published. A reminder was sent to ${studentId}.`
+      : 'Available slot published. Students in your group can now book it.'
     isError.value = false
     slotDate.value = ''
     slotTime.value = ''
@@ -388,14 +402,12 @@ function isBooked(slot: AppointmentSlot): boolean {
 }
 
 function displayStatus(slot: AppointmentSlot): string {
-  if (isBooked(slot)) return slot.status || 'BOOKED'
-  if (slot.invitedStudentId) return 'INVITED'
-  return slot.status || 'AVAILABLE'
+  if (isBooked(slot)) return 'BOOKED'
+  return 'AVAILABLE'
 }
 
 function statusClass(slot: AppointmentSlot): string {
   if (isBooked(slot)) return 'booked'
-  if (slot.invitedStudentId) return 'invited'
   return 'available'
 }
 
@@ -403,9 +415,9 @@ function displayStudent(slot: AppointmentSlot): string {
   if (slot.studentId) return String(slot.studentId)
   if (slot.invitedStudentId) {
     const name = slot.invitedStudentName ? ` (${slot.invitedStudentName})` : ''
-    return `${slot.invitedStudentId}${name} · invited`
+    return `Open · notified ${slot.invitedStudentId}${name}`
   }
-  return '-'
+  return 'Open · any group student'
 }
 
 async function saveVenue(slot: AppointmentSlot) {
@@ -674,6 +686,12 @@ label {
   display: block;
   margin-bottom: 8px;
   font-weight: 600;
+}
+
+.optional {
+  color: #6b7280;
+  font-weight: 400;
+  font-size: 13px;
 }
 
 input {

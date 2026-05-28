@@ -92,6 +92,28 @@ function buildHeaders(body: unknown, options: RequestOptions): Headers {
     if (token) {
       headers.set('Authorization', token.startsWith('Bearer ') ? token : `Bearer ${token}`)
     }
+
+    try {
+      const username = String(localStorage.getItem('username') || '').trim()
+      if (username) {
+        headers.set('X-Username', username)
+      }
+      const userId = String(localStorage.getItem('userId') || '').trim()
+      if (userId) {
+        headers.set('X-Student-Id', userId)
+      } else {
+        const raw = localStorage.getItem('userInfo')
+        if (raw) {
+          const info = JSON.parse(raw)
+          const resolved = String(
+            info?.userId ?? info?.id ?? info?.user?.userId ?? info?.user?.id ?? '',
+          ).trim()
+          if (resolved) headers.set('X-Student-Id', resolved)
+        }
+      }
+    } catch {
+      // ignore header enrichment failures
+    }
   }
 
   if (
