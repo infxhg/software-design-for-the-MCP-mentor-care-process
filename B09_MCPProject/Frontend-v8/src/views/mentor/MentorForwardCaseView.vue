@@ -8,7 +8,7 @@
           email integration is not required for the B09 front-end test.
         </p>
       </div>
-      <button class="secondary" @click="loadCases">Refresh Cases</button>
+      <button class="refresh-btn" type="button" @click="loadCases">Refresh Cases</button>
     </div>
 
     <form class="card" @submit.prevent="submit">
@@ -34,8 +34,7 @@
       <div v-if="studentInfo" class="student-box">
         <strong>Selected Student:</strong>
         {{ studentInfo.studentId || studentInfo.id || form.studentId }}
-        · {{ studentInfo.realName || studentInfo.name || studentInfo.studentName || studentInfo.username || 'N/A' }}
-        · Group: {{ studentInfo.groupId || 'N/A' }}
+        ·         {{ studentInfo.realName || studentInfo.name || studentInfo.studentName || studentInfo.username || 'N/A' }}
       </div>
 
       <label>
@@ -61,7 +60,7 @@
     <section class="card">
       <div class="bar">
         <h2>My Submitted Cases</h2>
-        <button class="secondary" :disabled="loadingCases" @click="loadCases">
+        <button class="refresh-btn" type="button" :disabled="loadingCases" @click="loadCases">
           {{ loadingCases ? 'Loading...' : 'Refresh' }}
         </button>
       </div>
@@ -295,8 +294,14 @@ button {
   padding: 9px 14px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
-  background: #fff;
+  background: #f1f5f9;
+  color: #111827;
+  font-weight: 500;
   cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: #e2e8f0;
 }
 
 button:disabled {
@@ -308,10 +313,21 @@ button:disabled {
   background: #2563eb;
   border-color: #2563eb;
   color: #fff;
+  font-weight: 600;
 }
 
-.secondary {
+.refresh-btn {
+  min-width: 88px;
+  padding: 8px 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
   background: #f8fafc;
+  color: #111827;
+  font-weight: 600;
+}
+
+.refresh-btn:hover:not(:disabled) {
+  background: #e2e8f0;
 }
 
 .student-box {
