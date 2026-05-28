@@ -12,6 +12,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 @RestController
 @RequestMapping("/api/mentoring/appointments")
 @RequiredArgsConstructor
@@ -31,7 +34,7 @@ public class AppointmentController {
     }
 
   /**
-     * 学生：查看本组导师可预约时段（仅 AVAILABLE）。
+     * 学生：本组导师可预约时段（AVAILABLE）+ 本人已预约时段（BOOKED，含 venue）。
      * 导师：查看自己发布的全部时段（路径 mentorId 须与 X-User-Id 一致）。
      */
     @PreAuthorize("hasAnyAuthority('ROLE_STUDENT', 'ROLE_MENTOR')")
@@ -48,6 +51,18 @@ public class AppointmentController {
                 return Result.success("success", appointmentService.listSlotsByMentor(mentorId));
             }
             var slots = appointmentService.listAvailableForStudent(currentUserId, mentorId);
+            // #region agent log
+            appointmentListDebugLog("C", "AppointmentController.listSlotsByMentorPath",
+                    "student list response",
+                    java.util.Map.of(
+                            "studentId", String.valueOf(currentUserId),
+                            "mentorId", mentorId,
+                            "returnedCount", slots.size(),
+                            "statuses", slots.stream()
+                                    .map(s -> String.valueOf(s.getStatus()))
+                                    .distinct()
+                                    .toList()));
+            // #endregion
             operationLogRecorder.recordQuiet(currentUserId, OperationLogActions.VIEW_MENTOR_APPOINTMENT_SLOTS,
                     "mentorId=" + mentorId);
             return Result.success("success", slots);
@@ -84,4 +99,25 @@ public class AppointmentController {
         appointmentService.cancelSlot(mentorId, slotId);
         return Result.success("Appointment cancelled", null);
     }
+
+    // #region agent log
+    private static void appointmentListDebugLog(String hypothesisId, String location, String message,
+                                                  Map<String, Object> data) {
+        try {
+            Map<String, Object> line = new LinkedHashMap<>();
+            line.put("sessionId", "6b255a");
+            line.put("hypothesisId", hypothesisId);
+            line.put("location", location);
+            line.put("message", message);
+            line.put("data", data);
+            line.put("timestamp", System.currentTimeMillis());
+            String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(line);
+            java.nio.file.Files.writeString(
+                    java.nio.file.Path.of("/Users/houshuoran/IdeaProjects/B09/.cursor/debug-6b255a.log"),
+                    json + System.lineSeparator(),
+                    java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+        } catch (Exception ignored) {
+        }
+    }
+    // #endregion
 }

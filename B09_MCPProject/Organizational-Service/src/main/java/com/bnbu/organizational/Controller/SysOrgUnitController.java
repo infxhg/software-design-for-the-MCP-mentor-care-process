@@ -2,6 +2,7 @@ package com.bnbu.organizational.Controller;
 
 
 import com.bnbu.organizational.DTO.CoordinatorScopeSearchVO;
+import com.bnbu.organizational.DTO.AssignDepartmentCoordinatorRequest;
 import com.bnbu.organizational.DTO.MentorVO;
 import com.bnbu.organizational.Common.OperationLogActions;
 import com.bnbu.organizational.DTO.Result;
@@ -376,6 +377,32 @@ public class SysOrgUnitController {
                     OperationLogActions.SEARCH_STUDENTS,
                     "keyword=" + (keyword != null ? keyword : "") + ", count=" + profiles.size());
             return Result.success("获取成功", profiles);
+        } catch (RuntimeException e) {
+            return Result.error(e.getMessage());
+        }
+    }
+
+    /**
+     * FC 手动为 Department 指定 Coordinator。
+     * POST /api/org/departments/{departmentUnitId}/coordinator
+     */
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('ROLE_FACULTY_CONSULTANT')")
+    @PostMapping("/departments/{departmentUnitId}/coordinator")
+    public Result assignDepartmentCoordinator(
+            @PathVariable String departmentUnitId,
+            @RequestBody AssignDepartmentCoordinatorRequest request,
+            @RequestHeader(value = "X-User-Id", required = false) String consultantId) {
+        if (consultantId == null || consultantId.isBlank()) {
+            return Result.error("未获取到当前登录 FC ID，请通过网关访问");
+        }
+        try {
+            sysOrgUnitService.assignDepartmentCoordinatorForFacultyConsultant(
+                    consultantId.trim(),
+                    departmentUnitId,
+                    request != null ? request.getCoordinatorUserId() : null,
+                    request != null ? request.getEmail() : null,
+                    request != null ? request.getRealName() : null);
+            return Result.success("Coordinator assigned successfully", null);
         } catch (RuntimeException e) {
             return Result.error(e.getMessage());
         }

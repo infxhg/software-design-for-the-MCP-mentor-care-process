@@ -96,4 +96,10 @@ public interface SysOrgUnitService extends IService<SysOrgUnit> {
      */
     List<StudentProfileVO> searchStudentProfilesForCaller(
             String callerId, boolean isFacultyConsultant, String keyword);
+
+    /**
+     * FC 手动指定某 Department 的 Coordinator（仅可操作其学院范围内的 Department）。
+     */
+    void assignDepartmentCoordinatorForFacultyConsultant(
+            String consultantId, String departmentUnitId, String coordinatorUserId, String email, String realName);
 }

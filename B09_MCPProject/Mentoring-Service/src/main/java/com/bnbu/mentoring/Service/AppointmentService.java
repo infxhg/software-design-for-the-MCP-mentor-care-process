@@ -14,9 +14,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -78,40 +80,57 @@ public class AppointmentService extends ServiceImpl<AppointmentSlotMapper, Appoi
                 .list();
     }
 
-    public List<AppointmentSlot> listAvailableForStudent(String studentId, String mentorId) {
-        return listSlotsForStudentBooking(studentId, mentorId);
-    }
-
     /**
-     * 学生端：可预约的 AVAILABLE 时段 + 该学生已 BOOKED 的时段（含导师后续填写的 venue）。
+     * 学生查看本组导师面谈时段：可预约的 AVAILABLE + 本人已预约的 BOOKED（含导师设置的 venue）。
      */
-    public List<AppointmentSlot> listSlotsForStudentBooking(String studentId, String mentorId) {
+    public List<AppointmentSlot> listAvailableForStudent(String studentId, String mentorId) {
         if (!mentoringAccessService.isStudentInMentorGroups(mentorId, studentId)) {
             throw new RuntimeException("权限不足：您只能查看本组导师的可用时段");
         }
+        List<AppointmentSlot> available = listAvailableByMentor(mentorId);
+        List<AppointmentSlot> myBooked = listBookedByStudentAndMentor(studentId, mentorId);
 
         Map<String, AppointmentSlot> merged = new LinkedHashMap<>();
-        for (AppointmentSlot slot : listAvailableByMentor(mentorId)) {
-            if (slot.getSlotId() != null) {
-                merged.put(slot.getSlotId(), slot);
-            }
+        for (AppointmentSlot slot : available) {
+            merged.put(slot.getSlotId(), slot);
         }
+        for (AppointmentSlot slot : myBooked) {
+            merged.put(slot.getSlotId(), slot);
+        }
+        List<AppointmentSlot> result = merged.values().stream()
+                .sorted(Comparator
+                        .comparing(AppointmentSlot::getSlotDate, Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(AppointmentSlot::getStartTime, Comparator.nullsLast(Comparator.naturalOrder())))
+                .collect(Collectors.toList());
 
-        List<AppointmentSlot> bookedByStudent = this.lambdaQuery()
+        // #region agent log
+        appointmentDebugLog("A", "AppointmentService.listAvailableForStudent",
+                "student mentor slots query",
+                Map.of(
+                        "runId", "post-fix",
+                        "studentId", studentId,
+                        "mentorId", mentorId,
+                        "availableCount", available.size(),
+                        "myBookedCount", myBooked.size(),
+                        "returnedCount", result.size(),
+                        "myBookedVenues", myBooked.stream()
+                                .map(s -> Map.of(
+                                        "slotId", String.valueOf(s.getSlotId()),
+                                        "venue", String.valueOf(s.getVenue()),
+                                        "status", String.valueOf(s.getStatus())))
+                                .collect(Collectors.toList())));
+        // #endregion
+        return result;
+    }
+
+    private List<AppointmentSlot> listBookedByStudentAndMentor(String studentId, String mentorId) {
+        return this.lambdaQuery()
                 .eq(AppointmentSlot::getMentorId, mentorId)
                 .eq(AppointmentSlot::getStudentId, studentId)
                 .eq(AppointmentSlot::getStatus, "BOOKED")
                 .orderByAsc(AppointmentSlot::getSlotDate)
                 .orderByAsc(AppointmentSlot::getStartTime)
                 .list();
-
-        for (AppointmentSlot slot : bookedByStudent) {
-            if (slot.getSlotId() != null) {
-                merged.put(slot.getSlotId(), slot);
-            }
-        }
-
-        return new ArrayList<>(merged.values());
     }
 
     @Transactional
@@ -147,6 +166,11 @@ public class AppointmentService extends ServiceImpl<AppointmentSlotMapper, Appoi
         }
         slot.setVenue(venue.trim());
         this.updateById(slot);
+        // #region agent log
+        appointmentDebugLog("B", "AppointmentService.setVenue", "venue persisted",
+                Map.of("slotId", slotId, "mentorId", mentorId, "status", String.valueOf(slot.getStatus()),
+                        "venue", slot.getVenue(), "studentId", String.valueOf(slot.getStudentId())));
+        // #endregion
         return slot;
     }
 
@@ -310,4 +334,25 @@ public class AppointmentService extends ServiceImpl<AppointmentSlotMapper, Appoi
         m = m % 60;
         return String.format("%02d:%02d", h, m);
     }
+
+    // #region agent log
+    private static void appointmentDebugLog(String hypothesisId, String location, String message,
+                                            Map<String, Object> data) {
+        try {
+            Map<String, Object> line = new LinkedHashMap<>();
+            line.put("sessionId", "6b255a");
+            line.put("hypothesisId", hypothesisId);
+            line.put("location", location);
+            line.put("message", message);
+            line.put("data", data);
+            line.put("timestamp", System.currentTimeMillis());
+            String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(line);
+            java.nio.file.Files.writeString(
+                    java.nio.file.Path.of("/Users/houshuoran/IdeaProjects/B09/.cursor/debug-6b255a.log"),
+                    json + System.lineSeparator(),
+                    java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+        } catch (Exception ignored) {
+        }
+    }
+    // #endregion
 }

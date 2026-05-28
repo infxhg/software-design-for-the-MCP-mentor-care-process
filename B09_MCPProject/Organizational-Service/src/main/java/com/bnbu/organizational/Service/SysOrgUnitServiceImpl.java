@@ -1,12 +1,15 @@
 package com.bnbu.organizational.Service;
 
 import com.alibaba.nacos.api.model.v2.Result;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.bnbu.organizational.DTO.EnsureUserRequest;
 import com.bnbu.organizational.DTO.MentorVO;
 import com.bnbu.organizational.DTO.UserRemoteDTO;
 import com.bnbu.organizational.DTO.UserSearchDTO;
 import com.bnbu.organizational.Entity.SysMentorInfo;
 import com.bnbu.organizational.Entity.SysOrgUnit;
+import com.bnbu.organizational.Entity.SysUserOrg;
 import com.bnbu.organizational.Mapper.SysMentorInfoMapper;
 import com.bnbu.organizational.Mapper.SysOrgUnitMapper;
 import com.bnbu.organizational.Mapper.SysUserOrgMapper;
@@ -28,6 +31,7 @@ import com.bnbu.organizational.DTO.McpGroupDetailVO;
 import com.bnbu.organizational.DTO.McpGroupVO;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -674,6 +678,112 @@ public class SysOrgUnitServiceImpl extends ServiceImpl<SysOrgUnitMapper, SysOrgU
         searchDTO.setUserIds(allUserIds);
         searchDTO.setKeyword(keyword);
         return fetchMentorsFromUserService(searchDTO);
+    }
+
+    @Override
+    public void assignDepartmentCoordinatorForFacultyConsultant(
+            String consultantId, String departmentUnitId, String coordinatorUserId, String email, String realName) {
+        if (!StringUtils.hasText(consultantId)) {
+            throw new RuntimeException("未获取到当前登录 FC ID");
+        }
+        if (!StringUtils.hasText(departmentUnitId)) {
+            throw new RuntimeException("departmentUnitId is required");
+        }
+        if (!StringUtils.hasText(coordinatorUserId)) {
+            throw new RuntimeException("coordinatorUserId is required");
+        }
+
+        SysOrgUnit department = this.getById(departmentUnitId.trim());
+        if (department == null) {
+            throw new RuntimeException("Department not found: " + departmentUnitId);
+        }
+        if (!"DEPARTMENT".equalsIgnoreCase(department.getUnitType())) {
+            throw new RuntimeException("Target unit is not DEPARTMENT: " + departmentUnitId);
+        }
+
+        String departmentFacultyId = resolveFacultyOrgIdForUnit(department.getUnitId());
+        if (!StringUtils.hasText(departmentFacultyId)) {
+            throw new RuntimeException("Cannot resolve FACULTY for department: " + departmentUnitId);
+        }
+        List<String> fcFacultyIds = sysUserOrgService.listFacultyOrgIdsForUser(consultantId.trim());
+        if (CollectionUtils.isEmpty(fcFacultyIds) || !fcFacultyIds.contains(departmentFacultyId)) {
+            throw new RuntimeException("权限不足：该 Department 不在您的学院管理范围内");
+        }
+
+        String ensuredCoordinatorId = ensureCoordinatorUser(
+                coordinatorUserId.trim(),
+                StringUtils.hasText(email) ? email.trim() : null,
+                StringUtils.hasText(realName) ? realName.trim() : null);
+
+        // 同一 Department 仅保留一个 coordinator 绑定：替换旧 coordinator
+        List<String> existingUserIds = sysUserOrgMapper.selectUserIdsByOrgId(department.getUnitId());
+        if (!CollectionUtils.isEmpty(existingUserIds)) {
+            UserSearchDTO search = new UserSearchDTO();
+            search.setRoleCode("COORDINATOR");
+            search.setUserIds(existingUserIds);
+            List<UserRemoteDTO> existingCoordinators = fetchMentorsFromUserService(search);
+            for (UserRemoteDTO coordinator : existingCoordinators) {
+                if (coordinator == null || !StringUtils.hasText(coordinator.getId())) {
+                    continue;
+                }
+                String cid = coordinator.getId().trim();
+                if (!ensuredCoordinatorId.equals(cid)) {
+                    sysUserOrgMapper.delete(new QueryWrapper<SysUserOrg>()
+                            .eq("user_id", cid)
+                            .eq("org_unit_id", department.getUnitId()));
+                }
+            }
+        }
+        sysUserOrgService.bindUserToOrg(ensuredCoordinatorId, department.getUnitId(), true);
+    }
+
+    private String ensureCoordinatorUser(String coordinatorUserId, String email, String realName) {
+        EnsureUserRequest req = new EnsureUserRequest();
+        req.setId(coordinatorUserId);
+        req.setUsername(coordinatorUserId);
+        req.setRoleCode("COORDINATOR");
+        req.setStatus(1);
+        if (StringUtils.hasText(email)) {
+            req.setEmail(email);
+        }
+        if (StringUtils.hasText(realName)) {
+            req.setRealName(realName);
+        }
+        Result res = userFeignClient.ensureUser(req);
+        if (res == null || res.getCode() != 200 || res.getData() == null) {
+            throw new RuntimeException("ensure coordinator user failed: "
+                    + (res != null ? res.getMessage() : "no response"));
+        }
+        String userId = extractUserId(res.getData());
+        if (!StringUtils.hasText(userId)) {
+            throw new RuntimeException("ensure coordinator user failed: missing user id");
+        }
+        return userId.trim();
+    }
+
+    private String extractUserId(Object data) {
+        if (data instanceof Map<?, ?> m) {
+            Object id = m.get("id");
+            return id != null ? String.valueOf(id) : null;
+        }
+        Map<String, Object> map = objectMapper.convertValue(data, new TypeReference<HashMap<String, Object>>() {});
+        Object id = map.get("id");
+        return id != null ? String.valueOf(id) : null;
+    }
+
+    private String resolveFacultyOrgIdForUnit(String orgUnitId) {
+        SysOrgUnit current = this.getById(orgUnitId);
+        int guard = 0;
+        while (current != null && guard++ < 20) {
+            if ("FACULTY".equalsIgnoreCase(current.getUnitType())) {
+                return current.getUnitId();
+            }
+            if (!StringUtils.hasText(current.getParentId())) {
+                break;
+            }
+            current = this.getById(current.getParentId());
+        }
+        return null;
     }
 
     private void assertCallerCanAccessStudent(String callerId, boolean isFacultyConsultant, String studentId) {

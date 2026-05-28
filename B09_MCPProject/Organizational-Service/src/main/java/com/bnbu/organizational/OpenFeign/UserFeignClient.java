@@ -3,6 +3,7 @@ package com.bnbu.organizational.OpenFeign;
 
 import com.alibaba.nacos.api.model.v2.Result;
 import com.bnbu.organizational.DTO.RecordOperationLogRequest;
+import com.bnbu.organizational.DTO.EnsureUserRequest;
 import com.bnbu.organizational.DTO.UserSearchDTO;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,4 +32,7 @@ public interface UserFeignClient {
 
     @PostMapping("/api/user/internal/operation-log")
     Result recordOperationLog(@RequestBody RecordOperationLogRequest request);
+
+    @PostMapping("/api/user/internal/ensure-user")
+    Result ensureUser(@RequestBody EnsureUserRequest request);
 }
