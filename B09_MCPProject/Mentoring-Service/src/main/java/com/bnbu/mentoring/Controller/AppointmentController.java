@@ -38,7 +38,6 @@ public class AppointmentController {
     @GetMapping("/slots/mentor/{mentorId}")
     public Result listSlotsByMentorPath(
             @RequestHeader("X-User-Id") String currentUserId,
-            @RequestHeader(value = "X-Username", required = false) String username,
             @PathVariable String mentorId) {
         try {
             String role = SecurityRoleUtils.primaryRoleCode();
@@ -48,38 +47,10 @@ public class AppointmentController {
                 }
                 return Result.success("success", appointmentService.listSlotsByMentor(mentorId));
             }
-            String effectiveStudentId = appointmentService.resolveStudentId(currentUserId, username);
-            var slots = appointmentService.listAvailableForStudent(effectiveStudentId, mentorId);
+            var slots = appointmentService.listAvailableForStudent(currentUserId, mentorId);
             operationLogRecorder.recordQuiet(currentUserId, OperationLogActions.VIEW_MENTOR_APPOINTMENT_SLOTS,
                     "mentorId=" + mentorId);
             return Result.success("success", slots);
-        } catch (RuntimeException e) {
-            return Result.error(e.getMessage());
-        }
-    }
-
-    @PreAuthorize("hasAuthority('ROLE_STUDENT')")
-    @GetMapping("/slots/{slotId}")
-    public Result getSlotForStudent(@RequestHeader("X-User-Id") String studentId,
-                                    @RequestHeader(value = "X-Username", required = false) String username,
-                                    @PathVariable String slotId) {
-        try {
-            String effectiveStudentId = appointmentService.resolveStudentId(studentId, username);
-            return Result.success("success", appointmentService.getSlotForStudent(effectiveStudentId, slotId));
-        } catch (RuntimeException e) {
-            return Result.error(e.getMessage());
-        }
-    }
-
-    @PreAuthorize("hasAuthority('ROLE_STUDENT')")
-    @GetMapping("/booked/mine")
-    public Result listMyBookedSlots(@RequestHeader("X-User-Id") String studentId,
-                                    @RequestHeader(value = "X-Username", required = false) String username,
-                                    @RequestParam String mentorId) {
-        try {
-            String effectiveStudentId = appointmentService.resolveStudentId(studentId, username);
-            return Result.success("success",
-                    appointmentService.listMyBookedSlotsForMentor(effectiveStudentId, mentorId));
         } catch (RuntimeException e) {
             return Result.error(e.getMessage());
         }

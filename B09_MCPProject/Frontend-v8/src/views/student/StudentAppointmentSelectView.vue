@@ -388,7 +388,7 @@ async function loadSlotsWithFallback(candidates: string[]): Promise<AppointmentS
   })
 
   if (merged.length > 0 || cachedForMentor.length > 0) {
-    return mergeStudentAppointmentSlots(cachedForMentor, merged)
+    return mergeStudentAppointmentSlots(merged, cachedForMentor)
   }
 
   throw lastError || new Error('Failed to load appointment slots.')

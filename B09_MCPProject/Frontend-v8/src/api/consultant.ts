@@ -59,7 +59,6 @@ export interface DepartmentSummary {
 }
 
 export interface CoordinatorPayload {
-  coordinatorUserId?: string
   coordinatorId?: string
   userId?: string
   email?: string
@@ -101,43 +100,21 @@ export async function getDepartmentDetail(deptId: string): Promise<DepartmentSum
   return departments.find((item) => item.departmentId === deptId) || null
 }
 
-function resolveCoordinatorUserId(payload: CoordinatorPayload = {}): string {
-  const coordinatorUserId = String(
-    payload.coordinatorUserId ?? payload.coordinatorId ?? payload.userId ?? '',
-  ).trim()
-  if (!coordinatorUserId) {
-    throw new Error('Coordinator User ID is required.')
-  }
-  return coordinatorUserId
-}
-
-function resolveDepartmentUnitId(
+export async function designateCoordinator(
   unitIdOrPayload: string | CoordinatorDesignation,
-): string {
+  maybePayload?: CoordinatorPayload,
+): Promise<any> {
   const unitId =
     typeof unitIdOrPayload === 'string'
       ? unitIdOrPayload
       : unitIdOrPayload.departmentId || unitIdOrPayload.department
 
-  const departmentUnitId = String(unitId || '').trim()
-  if (!departmentUnitId) {
-    throw new Error('Department Unit ID is required.')
-  }
-  return departmentUnitId
-}
+  if (!unitId) throw new Error('departmentId/unitId is required')
 
-/** FC manual designate — POST /api/org/departments/{departmentUnitId}/coordinator */
-export async function designateCoordinator(
-  unitIdOrPayload: string | CoordinatorDesignation,
-  maybePayload?: CoordinatorPayload,
-): Promise<any> {
-  const departmentUnitId = resolveDepartmentUnitId(unitIdOrPayload)
   const payload = typeof unitIdOrPayload === 'string' ? maybePayload || {} : unitIdOrPayload
 
-  const res = await post<any>(
-    `/api/org/departments/${encodeURIComponent(departmentUnitId)}/coordinator`,
-    { coordinatorUserId: resolveCoordinatorUserId(payload) },
-  )
+  // This endpoint is not listed in the uploaded OpenAPI, but the current UI needs it.
+  const res = await post<any>(`/api/mentoring/units/${encodeURIComponent(unitId)}/coordinator`, payload)
   return unwrap(res)
 }
 
@@ -145,16 +122,12 @@ export async function updateCoordinator(
   unitId: string,
   payload: CoordinatorPayload,
 ): Promise<any> {
-  return designateCoordinator(unitId, payload)
+  const res = await put<any>(`/api/mentoring/units/${encodeURIComponent(unitId)}/coordinator`, payload)
+  return unwrap(res)
 }
 
 export async function removeCoordinator(unitId: string): Promise<void> {
-  const departmentUnitId = String(unitId || '').trim()
-  if (!departmentUnitId) throw new Error('Department Unit ID is required.')
-
-  const res = await del<null>(
-    `/api/org/departments/${encodeURIComponent(departmentUnitId)}/coordinator`,
-  )
+  const res = await del<null>(`/api/mentoring/units/${encodeURIComponent(unitId)}/coordinator`)
   unwrap(res)
 }
 

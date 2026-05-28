@@ -15,26 +15,26 @@
 
     <div class="card">
       <h2>Manual Designate / Update</h2>
-      <p class="hint">
-        Calls
-        <code>POST /api/org/departments/{departmentUnitId}/coordinator</code>
-        with body <code>{ "coordinatorUserId": "..." }</code>.
-      </p>
       <label>
         Department Unit ID
-        <input v-model.trim="unitId" placeholder="e.g. department org unit UUID" />
+        <input v-model.trim="unitId" placeholder="e.g. org_dcs" />
       </label>
       <label>
         Coordinator User ID
-        <input
-          v-model.trim="payload.coordinatorUserId"
-          placeholder="e.g. coord_new_111"
-        />
+        <input v-model.trim="payload.coordinatorId" placeholder="coordinator sys_user.id" />
+      </label>
+      <label>
+        Email
+        <input v-model.trim="payload.email" type="email" placeholder="optional" />
+      </label>
+      <label>
+        Real Name
+        <input v-model.trim="payload.realName" placeholder="optional" />
       </label>
 
       <div class="actions">
-        <button class="primary" :disabled="!canSubmit" @click="createOrReplace">Designate</button>
-        <button class="secondary" :disabled="!canSubmit" @click="update">Update</button>
+        <button class="primary" :disabled="!unitId" @click="createOrReplace">Designate</button>
+        <button :disabled="!unitId" @click="update">Update</button>
         <button class="danger" :disabled="!unitId" @click="remove">Remove</button>
       </div>
     </div>
@@ -43,56 +43,61 @@
     <p v-if="success" class="success">{{ success }}</p>
 
     <div class="card">
-      <h2>Departments (click a row to fill Department Unit ID)</h2>
-      <button class="secondary" type="button" @click="loadUnits">Refresh Units</button>
+      <h2>Organization Units</h2>
+      <button @click="loadUnits">Refresh Units</button>
       <table class="table">
         <thead>
           <tr>
-            <th>Department Unit ID</th>
+            <th>ID</th>
             <th>Name</th>
-            <th>Faculty</th>
+            <th>Type</th>
+            <th>Parent ID</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="d in departments" :key="d.departmentId" @click="unitId = d.departmentId">
-            <td>{{ d.departmentId }}</td>
-            <td>{{ d.departmentName }}</td>
-            <td>{{ d.faculty || '-' }}</td>
+          <tr v-for="u in units" :key="u.id" @click="unitId = u.id">
+            <td>{{ u.id }}</td>
+            <td>{{ u.name }}</td>
+            <td>{{ u.type }}</td>
+            <td>{{ u.parentId || '-' }}</td>
           </tr>
-          <tr v-if="departments.length === 0">
-            <td colspan="3" class="empty">No departments.</td>
+          <tr v-if="units.length === 0">
+            <td colspan="4" class="empty">No units.</td>
           </tr>
         </tbody>
       </table>
     </div>
+
+    <p class="note">
+      Note: this page calls /api/mentoring/units/{unitId}/coordinator based on the previous confirmation that the backend uses units.
+      If Network shows 404, the backend OpenAPI or route still needs to be synchronized.
+    </p>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import {
   designateCoordinator,
   importCoordinatorList,
-  listDepartments,
   removeCoordinator,
   updateCoordinator,
-  type DepartmentSummary,
 } from '../../api/consultant'
+import { getOrgTree } from '../../api/org'
+import type { OrgUnit } from '../../api/admin'
 
 const file = ref<File | null>(null)
 const unitId = ref('')
 const loading = ref(false)
 const error = ref('')
 const success = ref('')
-const departments = ref<DepartmentSummary[]>([])
+const units = ref<OrgUnit[]>([])
 
 const payload = reactive({
-  coordinatorUserId: '',
+  coordinatorId: '',
+  email: '',
+  realName: '',
 })
-
-const canSubmit = computed(
-  () => Boolean(unitId.value.trim() && payload.coordinatorUserId.trim()),
-)
 
 function onFileChange(event: Event) {
   const target = event.target as HTMLInputElement
@@ -114,13 +119,17 @@ async function importFile() {
   }
 }
 
+function cleanPayload() {
+  return Object.fromEntries(
+    Object.entries(payload).filter(([, value]) => value !== undefined && value !== null && value !== ''),
+  )
+}
+
 async function createOrReplace() {
   error.value = ''
   success.value = ''
   try {
-    await designateCoordinator(unitId.value, {
-      coordinatorUserId: payload.coordinatorUserId.trim(),
-    })
+    await designateCoordinator(unitId.value, cleanPayload())
     success.value = 'Coordinator designated successfully.'
   } catch (e: any) {
     error.value = e.message || 'Designate failed.'
@@ -131,9 +140,7 @@ async function update() {
   error.value = ''
   success.value = ''
   try {
-    await updateCoordinator(unitId.value, {
-      coordinatorUserId: payload.coordinatorUserId.trim(),
-    })
+    await updateCoordinator(unitId.value, cleanPayload())
     success.value = 'Coordinator updated successfully.'
   } catch (e: any) {
     error.value = e.message || 'Update failed.'
@@ -154,9 +161,9 @@ async function remove() {
 
 async function loadUnits() {
   try {
-    departments.value = await listDepartments()
+    units.value = await getOrgTree()
   } catch (e: any) {
-    error.value = e.message || 'Failed to load departments.'
+    error.value = e.message || 'Failed to load organization units.'
   }
 }
 
@@ -169,40 +176,9 @@ onMounted(loadUnits)
 label { display: grid; gap: 6px; font-weight: 600; }
 input { padding: 9px 10px; border: 1px solid #cbd5e1; border-radius: 8px; }
 .actions { display: flex; gap: 10px; flex-wrap: wrap; }
-button {
-  width: fit-content;
-  padding: 8px 14px;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  background: #f1f5f9;
-  color: #1f2937;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background-color .15s ease, opacity .15s ease;
-}
-button:hover:not(:disabled) { background: #e2e8f0; }
-button:disabled { opacity: 0.55; cursor: not-allowed; }
-.primary {
-  background: #1f6feb;
-  border-color: #1f6feb;
-  color: #fff;
-  font-weight: 600;
-}
-.primary:hover:not(:disabled) { background: #1a5fd0; border-color: #1a5fd0; }
-.secondary {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
-  color: #1f2937;
-}
-.secondary:hover:not(:disabled) { background: #e2e8f0; }
-.danger {
-  background: #dc2626;
-  border-color: #dc2626;
-  color: #fff;
-  font-weight: 600;
-}
-.danger:hover:not(:disabled) { background: #b91c1c; border-color: #b91c1c; }
+button { width: fit-content; padding: 8px 14px; border: 1px solid #bbb; border-radius: 8px; background: #fff; cursor: pointer; }
+.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+.danger { color: #b42318; border-color: #f3b8b2; }
 .table { width: 100%; border-collapse: collapse; }
 th, td { border: 1px solid #e5e7eb; padding: 9px; text-align: left; }
 th { background: #f8fafc; }
@@ -211,6 +187,6 @@ tbody tr:hover { background: #f8fafc; }
 .error { color: #b42318; }
 .success { color: #087443; }
 .empty { text-align: center; color: #777; }
-.muted, .hint { color: #666; font-size: 14px; }
-.hint code { font-size: 12px; }
+.muted, .note { color: #666; }
+.note { margin-top: 16px; font-size: 13px; }
 </style>
